@@ -253,11 +253,10 @@ mod fdlibm {
         let f = f64::from(n);
         let mut r = t - f * PIO2_1;
         let mut w = f * PIO2_1T; // 1st round good to 85 bits
-        let y0;
         let quick =
             (1..32).contains(&n) && NPIO2_HW.get((n - 1) as usize).is_some_and(|hw| ix != *hw);
-        if quick {
-            y0 = r - w; // no cancellation
+        let y0 = if quick {
+            r - w // no cancellation
         } else {
             let j = ix >> 20;
             let mut y = r - w;
@@ -279,8 +278,8 @@ mod fdlibm {
                     y = r - w;
                 }
             }
-            y0 = y;
-        }
+            y
+        };
         let y1 = (r - y0) - w;
         Some(if hx < 0 { (-n, -y0, -y1) } else { (n, y0, y1) })
     }
