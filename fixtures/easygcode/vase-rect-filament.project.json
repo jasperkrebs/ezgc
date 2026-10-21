@@ -1,0 +1,52 @@
+{
+  "app": "easygcode",
+  "format": 2,
+  "kind": "vase",
+  "kindVersion": 1,
+  "name": "vase-rect-filament",
+  "settings": {
+    "shape": {
+      "kind": "roundedRect",
+      "roundedRect": {
+        "width": 60,
+        "length": 40,
+        "fillet": 8
+      }
+    },
+    "height": 2.55,
+    "layerHeight": 0.3,
+    "lineWidth": 0.6,
+    "speed": {
+      "mode": "flow",
+      "flow": 8
+    },
+    "top": "open",
+    "seam": "front",
+    "direction": "cw",
+    "tolerance": 0.05
+  },
+  "printer": {
+    "model": "p1p",
+    "multiplier": 0.95,
+    "includeStartEnd": true,
+    "endLift": 30,
+    "travelFeed": 9000,
+    "centerX": 128,
+    "centerY": 128,
+    "filament": {
+      "diameter": 1.75,
+      "nozzle": 210,
+      "bed": 65,
+      "fan": 80
+    },
+    "pellet": {
+      "up": 210,
+      "mid": 210,
+      "down": 210,
+      "bed": 50,
+      "pa": 0.3,
+      "purge": 5000,
+      "fan": 0
+    }
+  }
+}

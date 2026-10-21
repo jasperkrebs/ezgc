@@ -1,0 +1,106 @@
+# Checks every push, builds the web app, and deploys it to GitHub Pages from the default branch.
+#
+# Hosting: GitHub Pages needs one setting, once: Settings → Pages → Source: "GitHub Actions". Until
+# then the deploy job only leaves a notice and stays green. After switching it on, Actions → CI →
+# "Run workflow" deploys without waiting for the next push. A private repo needs a paid plan for
+# Pages; then also set the repo variable DEPLOY_PAGES = true.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine:
+    name: Engine (fmt, clippy, tests, wasm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # Includes the golden tests: the vase's G-code against EasyGCode's own (fixtures/easygcode/).
+      - run: cargo test --workspace --locked
+      # "Never break wasm": the engine must always build for the browser.
+      - run: cargo check -p easygcode-engine -p easygcode-wasm --target wasm32-unknown-unknown --locked
+      # Licenses: permissive only, and the notices file must list every dependency.
+      - run: python3 scripts/third-party-notices.py --check
+
+  web:
+    name: Web app (build, size budget, browser tests)
+    runs-on: ubuntu-latest
+    needs: engine
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install wasm-bindgen-cli (same version as Cargo.lock)
+        run: |
+          v=$(cargo metadata --format-version 1 --locked | python3 -c "import sys, json; print(next(p['version'] for p in json.load(sys.stdin)['packages'] if p['name'] == 'wasm-bindgen'))")
+          cargo install wasm-bindgen-cli --version "$v" --locked
+      - run: scripts/build-web.sh
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      # The browser's engine against EasyGCode's G-code, and the app's own modules.
+      - run: node --test scripts/wasm.test.mjs scripts/library.test.mjs scripts/form.test.mjs
+      - name: Smoke test in headless Chromium (phone and desktop)
+        run: |
+          npm install --no-save --no-package-lock playwright@1.56.1
+          npx playwright install --with-deps chromium
+          mkdir -p screenshots
+          node scripts/smoke-test.cjs screenshots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: screenshots
+          if-no-files-found: ignore
+      - uses: actions/upload-pages-artifact@v4
+        if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
+        with:
+          path: web
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: >-
+      needs.web.result == 'success' && !cancelled() &&
+      github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch &&
+      (!github.event.repository.private || vars.DEPLOY_PAGES == 'true')
+    needs: web
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Is GitHub Pages switched on?
+        id: pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/${{ github.repository }}/pages" --silent 2>/dev/null; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::GitHub Pages is off, so nothing was deployed. Switch it on once: Settings → Pages → Source: GitHub Actions."
+          fi
+      - id: deployment
+        if: steps.pages.outputs.enabled == 'true'
+        uses: actions/deploy-pages@v4

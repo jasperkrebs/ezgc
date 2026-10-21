@@ -1,0 +1,99 @@
+{
+  "project": "cordhanger",
+  "shape": "roundedRect",
+  "shapeParams": {
+    "width": 60,
+    "length": 40,
+    "fillet": 8
+  },
+  "printer": {
+    "mode": "filament",
+    "multiplier": 0.95,
+    "includeStartEnd": true,
+    "endLift": 30,
+    "filament": {
+      "diameter": 1.75,
+      "nozzle": 210,
+      "bed": 65,
+      "fan": 80
+    },
+    "pellet": {
+      "up": 210,
+      "mid": 210,
+      "down": 210,
+      "bed": 50,
+      "pa": 0.3,
+      "purge": 5000,
+      "fan": 0
+    }
+  },
+  "materialDensity": 0,
+  "materialPrice": 0,
+  "layerHeight": 0.3,
+  "lineWidth": 0.6,
+  "totalHeight": 2.55,
+  "bottomFillet": 0,
+  "printFeed": 1800,
+  "flowFeed": {
+    "enabled": true,
+    "rate": 8
+  },
+  "travelFeed": 9000,
+  "accelToWallFeed": 0,
+  "tolerance": 0.05,
+  "seamSide": "front",
+  "printDirection": "cw",
+  "centerX": 128,
+  "centerY": 128,
+  "fanMode": "always",
+  "topStyle": "spiral",
+  "brim": {
+    "enabled": false,
+    "outerStyle": "normal",
+    "linesOuter": 0,
+    "linesInner": 0,
+    "lineWidth": 2,
+    "layerHeight": 0.6,
+    "feed": 900,
+    "multiplier": 0
+  },
+  "hanger": {
+    "enabled": false,
+    "mode": "single",
+    "size": 10,
+    "pocket": 10,
+    "gapWidthMM": 10,
+    "pocketWidthMM": 10,
+    "bottom": 1,
+    "transition": 1,
+    "bridgeFeed": 0,
+    "overhangAngle": 0,
+    "overhangFeed": 0,
+    "flowMode": false
+  },
+  "pattern": {
+    "enabled": false,
+    "type": "weave",
+    "amplitude": 1,
+    "zAngle": 0,
+    "zAngleLowMM": 0,
+    "zAngleLow": 0,
+    "coverage": 100,
+    "bumpFeed": 0,
+    "flowMode": false,
+    "plBottom": 0,
+    "plTop": 0,
+    "bumps": 10,
+    "spikeDensity": 0,
+    "spikeVar": 0,
+    "seed": 0,
+    "spikeBalance": false,
+    "spikeDwell": 0,
+    "spikeOutMotion": "straight",
+    "spikeFeedOut": 0,
+    "spikeFeedTip": 0,
+    "spikeFeedIn": 0,
+    "spikeLineWidth": 0,
+    "spikeLayerHeight": 0
+  }
+}

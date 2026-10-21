@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f1115" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="EasyGCode" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
+    <link rel="stylesheet" href="styles.css" />
+    <title>EasyGCode</title>
+    <!-- Vendored, pinned three.js (web/vendor/three/README.txt). No bundler, no CDN. -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./vendor/three/three.module.js",
+          "three/addons/": "./vendor/three/addons/"
+        }
+      }
+    </script>
+    <script type="module" src="js/app.js"></script>
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <h1>EasyGCode</h1>
+        <button class="project-button" type="button" id="projectButton" aria-haspopup="dialog" aria-controls="projects">
+          <span id="projectTitle">Loading…</span>
+          <span class="kind" id="projectKind"></span>
+        </button>
+      </div>
+      <div class="status" id="status" role="status">Starting engine…</div>
+    </header>
+
+    <main class="layout">
+      <section class="viewport" aria-label="3D preview">
+        <canvas id="view"></canvas>
+        <div class="view-bar">
+          <label class="chip"><input type="checkbox" id="showTravel" checked /> Travel</label>
+          <button class="chip" type="button" id="refit">Fit</button>
+        </div>
+        <div class="legend" id="legend" hidden>
+          <span id="legendSlow"></span><span class="bar" aria-hidden="true"></span><span id="legendFast"></span>
+        </div>
+        <div class="view-message" id="viewMessage" hidden></div>
+      </section>
+
+      <div class="side">
+        <nav class="tabs" role="tablist" aria-label="Panels">
+          <button class="tab" role="tab" id="tab-settings" aria-controls="panel-settings" aria-selected="true">Settings</button>
+          <button class="tab" role="tab" id="tab-printer" aria-controls="panel-printer" aria-selected="false">Printer</button>
+          <button class="tab" role="tab" id="tab-gcode" aria-controls="panel-gcode" aria-selected="false">G-code</button>
+        </nav>
+
+        <section class="panel" role="tabpanel" id="panel-settings" aria-labelledby="tab-settings">
+          <div class="notices" id="notices"></div>
+          <div class="form" id="settingsForm"></div>
+          <details class="card group">
+            <summary>Project</summary>
+            <div class="field">
+              <div class="field-line">
+                <label for="projectName">Name</label>
+                <input type="text" id="projectName" autocomplete="off" />
+              </div>
+            </div>
+            <div class="field">
+              <label for="projectNotes">Notes</label>
+              <textarea id="projectNotes" rows="3" placeholder="What it's for, what worked…"></textarea>
+            </div>
+            <div class="buttons">
+              <button class="btn" type="button" id="resetSettings">Reset settings to defaults</button>
+            </div>
+          </details>
+        </section>
+
+        <section class="panel" role="tabpanel" id="panel-printer" aria-labelledby="tab-printer" hidden>
+          <div class="notices" id="printerNotices"></div>
+          <div class="form" id="printerForm"></div>
+          <p class="hint">
+            Each project keeps its own printer settings, so it prints the same next time. A new project starts from the
+            printer settings you used last.
+          </p>
+        </section>
+
+        <section class="panel" role="tabpanel" id="panel-gcode" aria-labelledby="tab-gcode" hidden>
+          <div id="parts"></div>
+          <p class="hint">
+            The G-code is written by one shared writer with EasyGCode's start and end blocks and bead model, golden-tested
+            against EasyGCode itself. It refuses a toolpath that leaves the bed or asks the printer for temperatures it
+            doesn't take.
+          </p>
+        </section>
+      </div>
+    </main>
+
+    <dialog class="sheet" id="projects" aria-labelledby="projectsTitle">
+      <div class="sheet-head">
+        <h2 id="projectsTitle">Projects</h2>
+        <button class="btn" type="button" id="closeProjects">Done</button>
+      </div>
+      <h3>New project</h3>
+      <div class="kinds" id="kindList"></div>
+      <h3>On this device</h3>
+      <ul class="project-list" id="projectList"></ul>
+      <div class="buttons">
+        <button class="btn" type="button" id="openFile">Open a file…</button>
+        <button class="btn" type="button" id="exportAll">Export all (backup)</button>
+      </div>
+      <p class="hint" id="storageNote">
+        Projects are saved on this device as you go. <b>Export</b> saves one as a file (to open on another device or keep
+        safe); iPhones can clear a web app's storage after weeks unused, so export a backup now and then.
+      </p>
+      <p class="error" id="fileError" role="alert" hidden></p>
+      <input type="file" id="fileInput" accept=".json,application/json" hidden />
+    </dialog>
+  </body>
+</html>

@@ -1,0 +1,52 @@
+{
+  "app": "easygcode",
+  "format": 2,
+  "kind": "vase",
+  "kindVersion": 1,
+  "name": "vase-star-bare",
+  "settings": {
+    "shape": {
+      "kind": "star",
+      "star": {
+        "outer": 35,
+        "inner": 18,
+        "points": 5
+      }
+    },
+    "height": 1.5,
+    "layerHeight": 0.4,
+    "lineWidth": 1.2,
+    "speed": {
+      "mode": "flow",
+      "flow": 15
+    },
+    "top": "flat",
+    "seam": "right",
+    "direction": "ccw",
+    "tolerance": 0.1
+  },
+  "printer": {
+    "model": "g1",
+    "multiplier": 1,
+    "includeStartEnd": false,
+    "endLift": 50,
+    "travelFeed": 6000,
+    "centerX": 125,
+    "centerY": 125,
+    "filament": {
+      "diameter": 1.75,
+      "nozzle": 205,
+      "bed": 60,
+      "fan": 100
+    },
+    "pellet": {
+      "up": 210,
+      "mid": 210,
+      "down": 210,
+      "bed": 50,
+      "pa": 0.3,
+      "purge": 5000,
+      "fan": 0
+    }
+  }
+}
