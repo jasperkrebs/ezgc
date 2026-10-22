@@ -6,8 +6,9 @@
 //!
 //! - [`kinds`], [`schema`], [`printer_schema`]: what projects can be, the printers ezgc knows, and
 //!   their settings windows.
-//! - [`new_project`], [`new_printer`]: a fresh project of a kind, a fresh printer profile of a
-//!   machine, every setting at its default.
+//! - [`templates`]: ready-made projects (the salt & pepper shaker, …).
+//! - [`new_project`], [`new_printer`]: a fresh project of a kind (every setting at its default) or
+//!   from a template, a fresh printer profile of a machine.
 //! - [`run`]: checks a project's and a printer's settings and builds the toolpaths, for the
 //!   preview and the estimate. Never fails: problems come back as messages, next to the settings
 //!   they're about.
@@ -31,7 +32,7 @@ pub mod toolpath;
 #[cfg(test)]
 mod snapshot_tests;
 
-use kinds::{Hint, Info, Kind};
+use kinds::{Hint, Info, Kind, TemplateInfo};
 use printer::{Machine, Mode, Printer};
 use project::Project;
 use schema::{Group, Problem};
@@ -75,19 +76,52 @@ pub fn printer_schema() -> PrinterSchema {
     }
 }
 
-/// A new project of `kind`, with every setting at its default.
-pub fn new_project(kind: &str) -> Result<Project, String> {
-    let k = find(kind)?;
-    let info = k.info();
-    Ok(Project {
-        app: project::APP.into(),
-        format: project::FORMAT,
-        kind: info.id.into(),
-        kind_version: info.version,
-        name: format!("New {}", info.name.to_lowercase()),
-        notes: String::new(),
-        settings: k.defaults(),
-    })
+/// Every template, kind by kind.
+pub fn templates() -> Vec<TemplateInfo> {
+    kinds::all()
+        .iter()
+        .flat_map(|k| {
+            let kind = k.info().id;
+            k.templates().into_iter().map(move |t| TemplateInfo {
+                id: t.id,
+                kind,
+                name: t.name,
+                description: t.description,
+            })
+        })
+        .collect()
+}
+
+/// A new project: of a kind, with every setting at its default, or from a template (by its id).
+pub fn new_project(id: &str) -> Result<Project, String> {
+    if let Some(k) = kinds::find(id) {
+        let info = k.info();
+        return Ok(Project {
+            app: project::APP.into(),
+            format: project::FORMAT,
+            kind: info.id.into(),
+            kind_version: info.version,
+            name: format!("New {}", info.name.to_lowercase()),
+            notes: String::new(),
+            settings: k.defaults(),
+        });
+    }
+    for k in kinds::all() {
+        if let Some(t) = k.templates().into_iter().find(|t| t.id == id) {
+            let info = k.info();
+            let (settings, _) = schema::normalize(&k.schema(), &k.defaults(), &t.settings);
+            return Ok(Project {
+                app: project::APP.into(),
+                format: project::FORMAT,
+                kind: info.id.into(),
+                kind_version: info.version,
+                name: t.name.into(),
+                notes: t.notes.into(),
+                settings,
+            });
+        }
+    }
+    Err(unknown_kind(id))
 }
 
 /// A new printer profile based on a machine (`"g1"`, `"p1p"`), every setting at its default.
@@ -100,9 +134,11 @@ fn unknown_model(model: &str) -> String {
 }
 
 fn find(kind: &str) -> Result<&'static dyn Kind, String> {
-    kinds::find(kind).ok_or_else(|| {
-        format!("This ezgc doesn't know projects of kind \"{kind}\" (reload the app to update it).")
-    })
+    kinds::find(kind).ok_or_else(|| unknown_kind(kind))
+}
+
+fn unknown_kind(kind: &str) -> String {
+    format!("This ezgc doesn't know projects of kind \"{kind}\" (reload the app to update it).")
 }
 
 /// What [`run`] found.

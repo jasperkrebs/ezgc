@@ -63,8 +63,10 @@ crates/engine   ezgc-engine   no UI, no I/O, no panics; compiles to wasm32
   lib.rs          the API: kinds, schema, printer_schema, new_project, new_printer, run, gcode
   project.rs      the project file (JSON) and its checks
   schema.rs       settings windows as data; normalize = defaults + checks
-  kinds/          what a project can be: spiral.rs (the base)
-  toolbox/        reusable steps: shapes.rs (outlines, seam, sampler), spiral.rs (the wall)
+  kinds/          what a project can be: spiral.rs (the base, and its features)
+  toolbox/        reusable steps: shapes.rs (outlines, seam, sampler), spiral.rs (the wall, plain or
+                  shaped), disc.rs (flat spirals: ring fill, hole spiral, stacked layers),
+                  layers.rs (closer layers on overhangs), profile.rs (smooth curve, fades)
   toolpath.rs     moves + events + stats
   gcode.rs        the one G-code writer, start/end blocks, safety checks
   printer.rs      machines (G1, P1P) and printer profiles
@@ -123,22 +125,33 @@ Today the Spiral is: an outline (circle, rounded rectangle, ellipse, polygon, st
 simplified to a chord tolerance, starting on a chosen side, either direction), walked by arc
 length with Z rising one layer per turn; the first turn ramps the extrusion from 0 to a full bead;
 the top is a level rim (one more turn tapering to nothing) or open; speed is a volumetric flow.
+Switched on, it also has a body profile, a flat bottom of stacked flat spiral layers turning into
+the wall through a fillet, closer layers on overhangs, an extrusion factor that keeps the flow, and
+a lid with holes as a second part: the salt & pepper shaker, one tap away as a template.
 
 Each feature from EasyGCode's projects joins it as a **group of settings that is off by
 default**, built from **toolbox steps** (written once, reusable):
 
-| Feature | Makes | Toolbox step |
-|---|---|---|
-| Flat bottom: a spiral disc, turning into the wall through a fillet (or not: a disc alone) | Container, vessel; the spiral disc | disc spiral, fillet |
-| Body profile along the height | Vessel, container, lampshade | profile (smooth curve through points) |
-| Layers that follow the overhang | Container, vessel, lampshade | layer pacing |
-| Disc spacing near a ring, interlocking bumps | Spiral disc, shaker lid | fade, interlock |
-| Wall patterns (weave, spikes), the hanger cut-out | Coat hanger | patterns, hanger |
-| Shaped top (morph, lamp throat and thread) | Lampshade, vessel's star top | morph |
-| Several spirals in one project | Container + lid | parts (already in `Generated`) |
+| Feature | Makes | Toolbox step | |
+|---|---|---|---|
+| Flat bottom: flat spiral layers, turning into the wall through a fillet | Container, vessel | `disc::ring_spiral`, `disc::stack`, `spiral::Shaped` | ✓ |
+| Body profile along the height | Vessel, container, lampshade | `profile::Graph` | ✓ |
+| Layers that follow the overhang (0–250 %) | Container, vessel, lampshade | `layers::paced` | ✓ |
+| Disc spacing near a ring, interlocking bumps | Shaker lid; the spiral disc | `profile::fade`, `disc::hole_spiral`, `disc::interlock` | ✓ |
+| Several spirals in one project | Container + lid | parts (`Generated`) | ✓ |
+| A flat spiral alone (no wall) | Spiral disc | | |
+| Wall patterns (weave, spikes), the hanger cut-out | Coat hanger | patterns, hanger | |
+| Shaped top (morph, lamp throat and thread) | Lampshade, vessel's star top | morph | |
 
-The settings window stays manageable because a group only opens when it's switched on, and
-**templates** (saved spiral projects: "Coat hanger", "Container", …) give one-tap starting points.
+The settings window stays manageable because a group only shows its settings when it's switched
+on, and **templates** (a kind's `templates()`: settings that differ from its defaults, a name and
+notes) give one-tap starting points in the New project sheet ("Salt & pepper shaker", …).
+
+A wall that isn't a straight prism is a `spiral::Shaped`: at each height the outline scaled (the
+profile, a fillet), the turns starting at given heights (`layers::paced`) and the bead set by height
+(easing from a flat bottom's into the wall's). Each turn blends one height's outline into the
+next's, so it's still one continuous line. A lid or anything printed as its own piece is another
+`Part` of the same project, with its own G-code file.
 
 **Not a spiral:** the bend stool (concentric rings with seams, legs, stacked layers with travel,
 foaming). It becomes its own kind when its turn comes; the kind registry is there for it.

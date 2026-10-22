@@ -44,6 +44,28 @@ pub struct Hint {
     pub text: String,
 }
 
+/// A ready-made project of a kind: a starting point ("Salt & pepper shaker"). Its settings are
+/// only the ones that differ from the kind's defaults.
+pub struct Template {
+    /// Unique across kinds.
+    pub id: &'static str,
+    pub name: &'static str,
+    pub description: &'static str,
+    /// The new project's notes.
+    pub notes: &'static str,
+    pub settings: Value,
+}
+
+/// What the app shows about a template.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateInfo {
+    pub id: &'static str,
+    pub kind: &'static str,
+    pub name: &'static str,
+    pub description: &'static str,
+}
+
 pub struct Generated {
     pub parts: Vec<Part>,
     pub warnings: Vec<String>,
@@ -60,6 +82,10 @@ pub trait Kind: Sync {
     fn generate(&self, settings: &Value, printer: &Printer) -> Result<Generated, String>;
     /// Carries settings saved by an older version of the kind over to this one.
     fn migrate(&self, _settings: &mut Value, _from_version: u32) {}
+    /// Ready-made projects of this kind.
+    fn templates(&self) -> Vec<Template> {
+        Vec::new()
+    }
 }
 
 static KINDS: [&dyn Kind; 1] = [&spiral::Spiral];

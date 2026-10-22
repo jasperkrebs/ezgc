@@ -26,6 +26,8 @@ const state = {
   printer: null,
   /** @type {{ id: string, name: string, description: string, version: number }[]} */
   kinds: [],
+  /** Ready-made projects. @type {{ id: string, kind: string, name: string, description: string }[]} */
+  templates: [],
   /** Settings windows by kind: `{ info, groups, defaults }`. @type {Map<string, any>} */
   schemas: new Map(),
   /** `{ groups, machines }`. @type {any} */
@@ -402,8 +404,9 @@ function flash(btn, text) {
 // ---------------------------------------------------------------------------------------------
 
 function renderProjects() {
+  // A blank project of each kind, then the ready-made ones.
   $('kindList').replaceChildren(
-    ...state.kinds.map((k) => {
+    ...[...state.kinds, ...state.templates].map((k) => {
       const card = el('button', { className: 'kind-card', type: 'button' }, [el('b', { text: k.name }), el('span', { text: k.description })]);
       card.addEventListener('click', async () => {
         dialog().close();
@@ -585,6 +588,7 @@ async function boot() {
     return;
   }
   state.kinds = await engine.kinds();
+  state.templates = await engine.templates();
   state.printerSchema = await engine.printerSchema();
   state.printerForm = createForm($('printerForm'), state.printerSchema.groups, onPrinterChange, { remember: 'ezgc.open.printer' });
   state.printer = await choosePrinter();

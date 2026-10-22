@@ -2,7 +2,9 @@
 //!
 //! G-code drives real machines, so any change to it should be one somebody meant. Each case is a
 //! project and a printer profile (`<case>.project.json`, `<case>.printer.json`) and the G-code ezgc
-//! writes for them (`<case>.gcode`); the test fails when the G-code differs. After an intended
+//! writes for them (`<case>.gcode`; a project of several parts writes its first part there and
+//! each other one to `<case>.<part>.gcode`, `salt-shaker.lid.gcode`); the test fails when the
+//! G-code differs. After an intended
 //! change, rewrite the snapshots and review the diff before committing:
 //!
 //! ```sh
@@ -35,27 +37,32 @@ fn snapshots() {
     let mut changed = Vec::new();
     for case in &cases {
         let read = |ext: &str| fs::read_to_string(dir().join(format!("{case}.{ext}"))).unwrap();
-        let got = gcode(&read("project.json"), &read("printer.json"), 0)
-            .unwrap_or_else(|e| panic!("{case}: {e}"));
-        let path = dir().join(format!("{case}.gcode"));
-        let want = fs::read_to_string(&path).unwrap_or_default();
-        if got == want {
-            continue;
-        }
-        if update {
-            fs::write(&path, &got).unwrap();
-        } else {
-            let line = got
-                .lines()
-                .zip(want.lines())
-                .position(|(a, b)| a != b)
-                .unwrap_or(got.lines().count().min(want.lines().count()));
-            changed.push(format!(
-                "{case}: line {}: {:?} (snapshot: {:?})",
-                line + 1,
-                got.lines().nth(line).unwrap_or(""),
-                want.lines().nth(line).unwrap_or("")
-            ));
+        let (project, printer) = (read("project.json"), read("printer.json"));
+        let parts = crate::run(&project, &printer).parts;
+        assert!(!parts.is_empty(), "{case}: no parts");
+        for (i, part) in parts.iter().enumerate() {
+            let got = gcode(&project, &printer, i).unwrap_or_else(|e| panic!("{case}: {e}"));
+            let file = file_name(case, i, &part.name);
+            let path = dir().join(&file);
+            let want = fs::read_to_string(&path).unwrap_or_default();
+            if got == want {
+                continue;
+            }
+            if update {
+                fs::write(&path, &got).unwrap();
+            } else {
+                let line = got
+                    .lines()
+                    .zip(want.lines())
+                    .position(|(a, b)| a != b)
+                    .unwrap_or(got.lines().count().min(want.lines().count()));
+                changed.push(format!(
+                    "{file}: line {}: {:?} (snapshot: {:?})",
+                    line + 1,
+                    got.lines().nth(line).unwrap_or(""),
+                    want.lines().nth(line).unwrap_or("")
+                ));
+            }
         }
     }
     assert!(
@@ -63,4 +70,14 @@ fn snapshots() {
         "the G-code changed; if that's meant, run UPDATE_SNAPSHOTS=1 cargo test -p ezgc-engine snapshots and review the diff:\n{}",
         changed.join("\n")
     );
+}
+
+/// Where a part's snapshot is: the first part's at `<case>.gcode`, another's at
+/// `<case>.<its name, lower case>.gcode` (as `scripts/wasm.test.mjs` finds them).
+fn file_name(case: &str, part: usize, name: &str) -> String {
+    if part == 0 {
+        format!("{case}.gcode")
+    } else {
+        format!("{case}.{}.gcode", name.to_lowercase().replace(' ', "-"))
+    }
 }

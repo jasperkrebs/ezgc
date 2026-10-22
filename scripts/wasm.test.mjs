@@ -25,12 +25,19 @@ test('there are snapshots', () => assert.ok(cases.length >= 4));
 
 for (const name of cases) {
   test(`${name}: the browser's engine writes the snapshot's G-code`, () => {
-    const got = engine.gcode(read(`${name}.project.json`), read(`${name}.printer.json`), 0);
-    const want = read(`${name}.gcode`);
-    const lines = [got.split('\n'), want.split('\n')];
-    const at = lines[0].findIndex((l, i) => l !== lines[1][i]);
-    assert.equal(at, -1, `line ${at + 1}: ${lines[0][at]} (snapshot: ${lines[1][at]})`);
-    assert.equal(got, want);
+    const [project, printer] = [read(`${name}.project.json`), read(`${name}.printer.json`)];
+    const parts = JSON.parse(engine.run(project, printer).meta).parts;
+    assert.ok(parts.length > 0);
+    parts.forEach((part, i) => {
+      // The first part's snapshot is <case>.gcode, another's <case>.<its name>.gcode.
+      const file = i === 0 ? `${name}.gcode` : `${name}.${part.name.toLowerCase().replace(/ /g, '-')}.gcode`;
+      const got = engine.gcode(project, printer, i);
+      const want = read(file);
+      const lines = [got.split('\n'), want.split('\n')];
+      const at = lines[0].findIndex((l, k) => l !== lines[1][k]);
+      assert.equal(at, -1, `${file}: line ${at + 1}: ${lines[0][at]} (snapshot: ${lines[1][at]})`);
+      assert.equal(got, want);
+    });
   });
 }
 

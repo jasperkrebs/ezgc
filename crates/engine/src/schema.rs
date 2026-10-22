@@ -26,6 +26,23 @@ pub enum Input {
     Choice {
         options: Vec<Choice>,
     },
+    /// A list of points (x, y), `min` to `max` of them, each value inside its axis' range: a curve
+    /// drawn through them (a body profile).
+    Points {
+        x: Axis,
+        y: Axis,
+        min: usize,
+        max: usize,
+    },
+}
+
+/// One coordinate of a list of points.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Axis {
+    pub label: &'static str,
+    pub unit: &'static str,
+    pub min: f64,
+    pub max: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -40,11 +57,31 @@ pub struct Choice {
 pub struct When {
     pub key: String,
     pub any_of: Vec<Value>,
+    /// Or shown while this holds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub or: Option<Box<When>>,
 }
 
 impl When {
     fn holds(&self, values: &Value) -> bool {
         get(values, &self.key).is_some_and(|v| self.any_of.contains(v))
+            || self.or.as_ref().is_some_and(|w| w.holds(values))
+    }
+
+    fn on(key: impl Into<String>) -> When {
+        When {
+            key: key.into(),
+            any_of: vec![Value::Bool(true)],
+            or: None,
+        }
+    }
+
+    fn any(key: impl Into<String>, values: &[&'static str]) -> When {
+        When {
+            key: key.into(),
+            any_of: values.iter().map(|v| Value::from(*v)).collect(),
+            or: None,
+        }
     }
 }
 
@@ -67,19 +104,13 @@ impl Field {
 
     /// Shown only while the choice at `key` is one of `values`.
     pub fn when(mut self, key: impl Into<String>, values: &[&'static str]) -> Field {
-        self.when = Some(When {
-            key: key.into(),
-            any_of: values.iter().map(|v| Value::from(*v)).collect(),
-        });
+        self.when = Some(When::any(key, values));
         self
     }
 
     /// Shown only while the toggle at `key` is on.
     pub fn when_on(mut self, key: impl Into<String>) -> Field {
-        self.when = Some(When {
-            key: key.into(),
-            any_of: vec![Value::Bool(true)],
-        });
+        self.when = Some(When::on(key));
         self
     }
 
@@ -108,17 +139,20 @@ impl Group {
     }
 
     pub fn when(mut self, key: impl Into<String>, values: &[&'static str]) -> Group {
-        self.when = Some(When {
-            key: key.into(),
-            any_of: values.iter().map(|v| Value::from(*v)).collect(),
-        });
+        self.when = Some(When::any(key, values));
         self
     }
 
     pub fn when_on(mut self, key: impl Into<String>) -> Group {
+        self.when = Some(When::on(key));
+        self
+    }
+
+    /// Shown while the toggle at `a` or the one at `b` is on.
+    pub fn when_either_on(mut self, a: impl Into<String>, b: impl Into<String>) -> Group {
         self.when = Some(When {
-            key: key.into(),
-            any_of: vec![Value::Bool(true)],
+            or: Some(Box::new(When::on(b))),
+            ..When::on(a)
         });
         self
     }
@@ -208,6 +242,18 @@ pub fn choice(
     )
 }
 
+/// A list of points (see [`Input::Points`]); values are `[[x, y], …]`.
+pub fn points(
+    key: impl Into<String>,
+    label: &'static str,
+    x: Axis,
+    y: Axis,
+    min: usize,
+    max: usize,
+) -> Field {
+    field(key, label, Input::Points { x, y, min, max })
+}
+
 /// A problem with one setting: shown next to the field, and nothing is generated until it's fixed.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Problem {
@@ -252,6 +298,25 @@ fn merge(defaults: &Value, given: &Value) -> Value {
     }
 }
 
+/// A list of points as `[[x, y], …]` numbers (typed as text too); rows that aren't two numbers are
+/// dropped. `None` when it isn't a list at all.
+fn clean_points(v: &Value) -> Option<Value> {
+    let num = |v: &Value| match v {
+        Value::Number(n) => n.as_f64(),
+        Value::String(s) => parse_number(s),
+        _ => None,
+    };
+    let rows = v.as_array()?;
+    Some(Value::Array(
+        rows.iter()
+            .filter_map(|row| match row.as_array().map(Vec::as_slice) {
+                Some([x, y]) => Some(Value::from(vec![num(x)?, num(y)?])),
+                _ => None,
+            })
+            .collect(),
+    ))
+}
+
 /// A number typed by a person: a decimal comma works as well as a point.
 pub fn parse_number(text: &str) -> Option<f64> {
     let t: String = text
@@ -291,6 +356,12 @@ pub fn normalize(groups: &[Group], defaults: &Value, given: &Value) -> (Value, V
                 && x.is_finite()
             {
                 *v = Value::from(crate::num::round(x));
+            }
+            if let Input::Points { .. } = f.input
+                && let Some(v) = get_mut(&mut values, &f.key)
+            {
+                *v = clean_points(v)
+                    .unwrap_or_else(|| get(defaults, &f.key).cloned().unwrap_or(Value::Null));
             }
         }
     }
@@ -338,6 +409,35 @@ fn check(f: &Field, v: Option<&Value>) -> Option<String> {
             Some(s) if options.iter().any(|o| o.value == s) => None,
             _ => Some(format!("{}: choose one of the options", f.label)),
         },
+        Input::Points { x, y, min, max } => {
+            let rows = v.and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+            if rows.len() < *min || rows.len() > *max {
+                return Some(format!("{}: give {min} to {max} points", f.label));
+            }
+            for (i, row) in rows.iter().enumerate() {
+                for (axis, value) in [x, y].into_iter().zip([row.get(0), row.get(1)]) {
+                    match value.and_then(Value::as_f64) {
+                        Some(a) if a >= axis.min && a <= axis.max => {}
+                        _ => {
+                            return Some(format!(
+                                "{}: point {}'s {} must be {}–{}{}",
+                                f.label,
+                                i + 1,
+                                axis.label.to_lowercase(),
+                                crate::num::js(axis.min),
+                                crate::num::js(axis.max),
+                                if axis.unit.is_empty() {
+                                    String::new()
+                                } else {
+                                    format!(" {}", axis.unit)
+                                }
+                            ));
+                        }
+                    }
+                }
+            }
+            None
+        }
     }
 }
 
@@ -473,6 +573,46 @@ mod tests {
             &json!({ "shape": { "kind": "blob" } }),
         );
         assert_eq!(problems[0].message, "Shape: choose one of the options");
+    }
+
+    #[test]
+    fn points_are_cleaned_and_checked() {
+        let axis = |label| Axis {
+            label,
+            unit: "%",
+            min: 0.0,
+            max: 100.0,
+        };
+        let groups = vec![group(
+            "Body",
+            vec![
+                toggle("on", "Profile"),
+                points("points", "Profile", axis("Height"), axis("Size"), 1, 3).when_on("on"),
+            ],
+        )];
+        let defaults = json!({ "on": true, "points": [[0, 50]] });
+        let (v, problems) = normalize(
+            &groups,
+            &defaults,
+            &json!({ "points": [[0, "12,5"], [1], "x", [50, 60]] }),
+        );
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(get(&v, "points"), Some(&json!([[0.0, 12.5], [50.0, 60.0]])));
+        let (v, _) = normalize(&groups, &defaults, &json!({ "points": 3 }));
+        assert_eq!(get(&v, "points"), Some(&json!([[0.0, 50.0]])));
+        let (_, problems) = normalize(&groups, &defaults, &json!({ "points": [[0, 150]] }));
+        assert_eq!(
+            problems[0].message,
+            "Profile: point 1's size must be 0–100 %"
+        );
+        let (_, problems) = normalize(&groups, &defaults, &json!({ "points": [] }));
+        assert_eq!(problems[0].message, "Profile: give 1 to 3 points");
+        // Shown when either toggle is on.
+        let g = group("Flat", vec![]).when_either_on("a", "b");
+        let f = number("x", "X", "", 0.0, 1.0);
+        assert!(!visible(&g, &f, &json!({ "a": false, "b": false })));
+        assert!(visible(&g, &f, &json!({ "a": false, "b": true })));
+        assert!(visible(&g, &f, &json!({ "a": true, "b": false })));
     }
 
     #[test]

@@ -1,5 +1,6 @@
 // Settings windows, drawn from a schema the engine describes (a kind's settings, or the
-// printer's): groups of number fields, toggles and dropdowns, each bound to a dotted key in a plain
+// printer's): groups of number fields, toggles, dropdowns and lists of points (a body profile),
+// each bound to a dotted key in a plain
 // settings object. Adding a setting to a kind adds it here: there is no hand-written HTML per
 // project. The window is built once per schema; values, visibility, problems and hints are
 // updated in place, so typing never loses focus.
@@ -7,9 +8,11 @@
 import { el, numberField, parseNumber } from './dom.js';
 
 /**
+ * @typedef {{ label: string, unit: string, min: number, max: number }} Axis
  * @typedef {{ type: 'number', unit: string, min: number, max: number, step: number, integer: boolean }
- *   | { type: 'toggle' } | { type: 'choice', options: { value: string, label: string }[] }} Input
- * @typedef {{ key: string, anyOf: any[] }} When
+ *   | { type: 'toggle' } | { type: 'choice', options: { value: string, label: string }[] }
+ *   | { type: 'points', x: Axis, y: Axis, min: number, max: number }} Input
+ * @typedef {{ key: string, anyOf: any[], or?: When }} When
  * @typedef {{ key: string, label: string, input: Input, help?: string, when?: When }} Field
  * @typedef {{ title: string, fields: Field[], when?: When, open: boolean }} Group
  */
@@ -27,7 +30,7 @@ export function set(values, key, value) {
 }
 
 /** @param {When | undefined} when */
-const holds = (when, values) => !when || when.anyOf.some((v) => v === get(values, when.key));
+const holds = (when, values) => !when || when.anyOf.some((v) => v === get(values, when.key)) || Boolean(when.or && holds(when.or, values));
 
 /** A number as a person types it: no float noise (0.30000000000000004 → 0.3). */
 const show = (v) => (typeof v === 'number' && Number.isFinite(v) ? String(Number(v.toPrecision(12))) : '');
@@ -41,7 +44,7 @@ const show = (v) => (typeof v === 'number' && Number.isFinite(v) ? String(Number
  */
 export function createForm(host, groups, onChange, opts = {}) {
   host.replaceChildren();
-  /** @type {Map<string, { field: Field, group: Group, row: HTMLElement, input: HTMLInputElement | HTMLSelectElement, hint: HTMLElement, error: HTMLElement }>} */
+  /** @type {Map<string, { field: Field, group: Group, row: HTMLElement, input: HTMLInputElement | HTMLSelectElement, hint: HTMLElement, error: HTMLElement, show?: (v: any) => void }>} */
   const rows = new Map();
   /** @type {{ group: Group, node: HTMLDetailsElement }[]} */
   const cards = [];
@@ -77,7 +80,24 @@ export function createForm(host, groups, onChange, opts = {}) {
     const label = el('label', { htmlFor: id, text: field.label });
     let input;
     let control;
+    let showValue;
     const inp = field.input;
+    if (inp.type === 'points') {
+      const list = pointsList(id, inp, (points) => onChange(field.key, points));
+      input = /** @type {any} */ ({ focus: () => list.focusable.focus() });
+      control = null;
+      showValue = list.show;
+      const row = el('div', { className: 'field points' }, [
+        el('div', { className: 'field-line' }, [el('span', { className: 'label', text: field.label })]),
+        field.help ? el('p', { className: 'hint', text: field.help }) : null,
+        list.node,
+        hint,
+        error,
+      ]);
+      row.dataset.key = field.key;
+      rows.set(field.key, { field, group, row, input, hint, error, show: showValue });
+      return row;
+    }
     if (inp.type === 'number') {
       const f = numberField({ id, className: 'num' }, inp.min < 0);
       input = f.input;
@@ -118,10 +138,11 @@ export function createForm(host, groups, onChange, opts = {}) {
      */
     update(values, problems = [], hints = []) {
       for (const { group, node } of cards) node.hidden = !holds(group.when, values);
-      for (const { field, row, input, hint, error } of rows.values()) {
+      for (const { field, row, input, hint, error, show: showValue } of rows.values()) {
         row.hidden = !holds(field.when, values);
         const v = get(values, field.key);
-        if (field.input.type === 'toggle') /** @type {HTMLInputElement} */ (input).checked = Boolean(v);
+        if (showValue) showValue(v);
+        else if (field.input.type === 'toggle') /** @type {HTMLInputElement} */ (input).checked = Boolean(v);
         else if (field.input.type === 'choice') input.value = String(v ?? '');
         // Never rewrite a number while it's being typed.
         else if (document.activeElement !== input) input.value = show(v);
@@ -143,6 +164,90 @@ export function createForm(host, groups, onChange, opts = {}) {
       if (card) card.node.open = true;
       r.input.focus();
       r.row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    },
+  };
+}
+
+/**
+ * A list of points (x, y) to edit: a row of two numbers per point, a button to remove it, and one
+ * to add a point in the widest gap. Calls `onChange` with the whole list when every row reads as
+ * numbers. Rows are redrawn from the values only while none of them is being typed in.
+ * @param {string} id
+ * @param {{ x: Axis, y: Axis, min: number, max: number }} inp
+ * @param {(points: number[][]) => void} onChange
+ */
+function pointsList(id, inp, onChange) {
+  const body = el('div', { className: 'point-rows' });
+  const add = el('button', { className: 'btn tiny', type: 'button', text: '+ Add point' });
+  const node = el('div', { className: 'point-list', id }, [body, add]);
+  /** @type {number[][]} */
+  let points = [];
+  let shown = '';
+
+  const axisField = (axis, value, onInput) => {
+    const f = numberField({ className: 'num', 'aria-label': axis.label }, axis.min < 0);
+    f.input.value = show(value);
+    f.input.addEventListener('input', onInput);
+    f.input.addEventListener('change', onInput);
+    return { input: f.input, node: el('label', { className: 'point-axis' }, [el('span', { text: axis.label }), ...f.nodes, axis.unit ? el('span', { className: 'unit', text: axis.unit }) : null]) };
+  };
+
+  function draw() {
+    const inputs = [];
+    body.replaceChildren(
+      ...points.map((p, i) => {
+        const commit = () => {
+          const next = inputs.map(([a, b]) => [parseNumber(a.value), parseNumber(b.value)]);
+          if (next.every(([a, b]) => Number.isFinite(a) && Number.isFinite(b))) {
+            points = next;
+            onChange(points);
+          }
+        };
+        const x = axisField(inp.x, p[0], commit);
+        const y = axisField(inp.y, p[1], commit);
+        inputs.push([x.input, y.input]);
+        const remove = el('button', { className: 'btn tiny', type: 'button', text: '×', title: 'Remove this point', 'aria-label': `Remove point ${i + 1}` });
+        remove.disabled = points.length <= inp.min;
+        remove.addEventListener('click', () => {
+          points = points.filter((_, k) => k !== i);
+          draw();
+          onChange(points);
+        });
+        return el('div', { className: 'point-row' }, [x.node, y.node, remove]);
+      }),
+    );
+    add.disabled = points.length >= inp.max;
+  }
+
+  add.addEventListener('click', () => {
+    // Halfway along the widest gap between neighbouring points (or after the last one).
+    const sorted = [...points].sort((a, b) => a[0] - b[0]);
+    let best = null;
+    for (let i = 1; i < sorted.length; i++) {
+      const gap = sorted[i][0] - sorted[i - 1][0];
+      if (!best || gap > best.gap) best = { gap, at: [(sorted[i][0] + sorted[i - 1][0]) / 2, (sorted[i][1] + sorted[i - 1][1]) / 2] };
+    }
+    const last = sorted[sorted.length - 1] || [inp.x.min, (inp.y.min + inp.y.max) / 2];
+    const at = best && best.gap > 0 ? best.at : [Math.min(inp.x.max, last[0] + (inp.x.max - inp.x.min) / 10), last[1]];
+    points = [...sorted, at].sort((a, b) => a[0] - b[0]).map(([a, b]) => [Number(a.toPrecision(6)), Number(b.toPrecision(6))]);
+    draw();
+    onChange(points);
+  });
+
+  return {
+    node,
+    /** The element to focus for "fix this". */
+    get focusable() {
+      return /** @type {HTMLInputElement} */ (body.querySelector('input') || add);
+    },
+    /** @param {any} v */
+    show(v) {
+      const list = Array.isArray(v) ? v.filter((p) => Array.isArray(p) && p.length === 2) : [];
+      const text = JSON.stringify(list);
+      if (text === shown || node.contains(document.activeElement)) return;
+      shown = text;
+      points = list.map((p) => [Number(p[0]), Number(p[1])]);
+      draw();
     },
   };
 }

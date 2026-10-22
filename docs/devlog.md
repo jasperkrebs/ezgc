@@ -3,6 +3,44 @@
 Newest first. Each entry: what landed, numbers, what's still open. Keep it short; it's how the
 next session (human or agent) picks up.
 
+## 2026-10-22: the salt & pepper shaker
+
+**Why:** the owner wants every EasyGCode project in ezgc except the spoon and the thread, one or
+two at a time, starting with the container as the salt & pepper shaker (with the lid from their
+EasyCAD project and the three changes from its chat). The list and order are in
+[roadmap.md](roadmap.md#easygcodes-projects-in-ezgc-the-owners-list-22-oct-2026).
+
+**Landed** (all on the Spiral, off by default: the four earlier snapshots are byte-identical)
+- **Body profile** (`toolbox::profile`): a monotone cubic through (height %, scale %) points, level
+  at both ends (EasyCAD's smooth `graph`). The settings window has a new field type for it, a list
+  of points (`Input::Points`; rows of two numbers, add and remove).
+- **Shaped walls** (`toolbox::spiral::Shaped`): the wall as the outline scaled along the height,
+  turns starting at given heights, the bead set by height; the plain spiral is untouched.
+- **Paced layers** (`toolbox::layers::paced`): each turn `layer · cos^(pace−1) · (1 − min(pace,1) ·
+  (1 − cos))`, cos of the lean where the wall leans most (no less than 0.05), stepped by its middle
+  and fitted to end on the top: 0–250 %.
+- **Flat spirals** (`toolbox::disc`): the ring fill linked as a spiral (EasyCAD's `rings` +
+  `link_rings`), the lid's hole spiral (RK4 at 720 steps a turn, the fade around a ring, the
+  interlock solve, the stretch after the wiggles), and `stack`: odd layers out, in, out as one line.
+- **Flat bottom, fillet, lid**: the fillet a true quarter circle; bead easing (smoothstep) from the
+  flat spiral's into the wall's; the lid a second part (container + lid → two G-code files), the
+  container's neck as tall as the skirt, the lid one line width (+ fit) outside it.
+- **Extrusion that keeps the flow**: wall and flat spirals, more plastic per move and the feed
+  divided by the same factor (the EasyCAD chat's first fix).
+- **Templates**: `templates()` in the engine API; "Salt & pepper shaker" in the New project sheet.
+- **Preview**: parts stand side by side (each still prints on the bed's centre).
+- **Snapshots** can have several parts (`<case>.gcode`, `<case>.lid.gcode`); a small shaker on the
+  P1P covers every new setting (extrusion 110 %/125 %, 150 % pace, profile, fillet, lid, holes).
+
+**Numbers:** 57 engine tests (5 snapshot cases, 6 files), 9 wasm tests, 8 Node tests; engine 160 KB
+gzipped. The template (two parts, about 33,000 moves) runs in about 10 ms in Chromium.
+
+**Open**
+- At 250 % the fillet's foot, nearly flat, takes about 140 turns (EasyCAD's lofted fillet about
+  110; 22 at 100 %): fine where walls lean moderately (the lampshade), heavy for a fillet.
+- The lid needs the circle shape (it screws on); other shapes get a warning and no lid.
+- Next: the lampshade with all its shades ([roadmap.md](roadmap.md)).
+
 ## 2026-10-22: the owner's decisions: ezgc, one spiral, printer profiles
 
 **Why:** the owner answered the open questions ([roadmap.md](roadmap.md#decisions-answered-22-oct-2026)):

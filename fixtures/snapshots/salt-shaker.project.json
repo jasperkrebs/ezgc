@@ -1,0 +1,19 @@
+{
+  "app": "ezgc",
+  "format": 1,
+  "kind": "spiral",
+  "name": "Small salt shaker",
+  "settings": {
+    "shape": { "kind": "circle", "circle": { "radius": 14 } },
+    "height": 10,
+    "lineWidth": 1.5,
+    "extrusion": 110,
+    "pace": 150,
+    "body": { "on": true, "points": [[0, 100], [45, 115], [100, 97]] },
+    "bottom": { "on": true, "fillet": 3 },
+    "disc": { "layers": 3, "layerHeight": 0.4, "lineWidth": 0, "extrusion": 125 },
+    "lid": { "on": true, "skirt": 3, "fillet": 2, "fit": 0.1, "holes": { "ring": 6, "fadeIn": 3, "fadeOut": 3, "bumps": 7 } },
+    "top": "flat",
+    "tolerance": 0.2
+  }
+}

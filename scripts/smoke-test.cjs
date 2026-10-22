@@ -2,7 +2,8 @@
 // sizes, waits for the Rust engine, then works it like a person would: changes settings (with a
 // decimal comma), breaks one and fixes it, downloads G-code (which must be the snapshot's,
 // fixtures/snapshots/circle-g1), switches, edits, makes and deletes printers, makes, renames,
-// duplicates and reopens projects, and saves project and printer files and opens them again.
+// duplicates and reopens projects, saves project and printer files and opens them again, and
+// starts a salt & pepper shaker from its template (two parts, a body profile to edit).
 // Checks that nothing errored and that the service worker caches every shipped file.
 //
 //   node scripts/smoke-test.cjs [screenshot-dir]
@@ -230,6 +231,32 @@ function shipped(dir, base = '') {
       check((await page.locator('.project-item').count()) === 4, `${name}: the library lost projects`);
       await page.click('#closeProjects');
       if (shots) await page.screenshot({ path: path.join(shots, `${name}-5-reloaded.png`) });
+
+      // A template: the salt & pepper shaker, a container and a lid.
+      await page.click('#projectButton');
+      await page.click('.kind-card:has-text("Salt & pepper shaker")');
+      await settled(page);
+      check((await page.textContent('#projectTitle')) === 'Salt & pepper shaker', `${name}: the shaker template didn't open`);
+      check(await page.isVisible('#settingsForm summary:has-text("Flat spirals")'), `${name}: the flat spirals' settings don't show`);
+      check(await page.isVisible('#settingsForm summary:has-text("Holes in the lid")'), `${name}: the lid's holes don't show`);
+      await page.click('#settingsForm summary:has-text("Body profile")');
+      const rows = page.locator('[data-key="body.points"] .point-row');
+      check((await rows.count()) === 3, `${name}: the profile has ${await rows.count()} points, not 3`);
+      await rows.nth(1).locator('input[aria-label="Scale"]').fill('120');
+      await settled(page);
+      await page.click('[data-key="body.points"] button:has-text("Add point")');
+      await settled(page);
+      await page.waitForTimeout(500); // the autosave
+      const shaker = await page.evaluate(() => JSON.parse(localStorage.getItem(`ezgc.projects.${localStorage.getItem('ezgc.projects.current')}`) || '{}'));
+      const points = shaker.settings?.body?.points || [];
+      check(points.length === 4 && points.some((p) => p[1] === 120), `${name}: the profile wasn't edited (${JSON.stringify(points)})`);
+      if (shots) await page.screenshot({ path: path.join(shots, `${name}-6-shaker.png`) });
+      await page.click('#tab-gcode');
+      const parts = await page.locator('.part h2').allTextContents();
+      check(JSON.stringify(parts) === JSON.stringify(['Container', 'Lid']), `${name}: the shaker's parts are ${parts}`);
+      const lid = await saveFrom(page, page.locator('.part').filter({ hasText: 'Lid' }).getByRole('button', { name: 'Download .gcode' }));
+      check(/-lid\.gcode$/.test(lid.name) && /\(Lid\)/.test(lid.text.split('\n')[0]), `${name}: the lid's G-code is ${lid.name}: ${lid.text.split('\n')[0]}`);
+      if (shots) await page.screenshot({ path: path.join(shots, `${name}-7-shaker-gcode.png`) });
       await ctx.close();
     }
   } catch (err) {

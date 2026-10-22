@@ -46,25 +46,49 @@ ezgc as the name; the **Spiral** as the one base; **printer profiles** on the de
 G1 or the P1P, duplicated, renamed, exported, opened from a file); **speed as flow** with the feed
 beside it; ezgc's own **snapshot tests** instead of EasyGCode's; first pull request into `main`.
 
-## Next: growing the spiral
+## Step 2: the salt & pepper shaker ✓ *22 Oct 2026*
 
-Each a group of settings on the spiral, off by default, so earlier projects print as before. A
-suggested order (most reuse first):
+EasyGCode's container with the spiral-disc lid, grown onto the spiral as settings that are off by
+default (every earlier project prints exactly as before; the snapshots prove it), and a template:
 
-| # | Feature | What it makes possible |
-|---|---|---|
-| 1 | **Flat bottom**: a spiral disc from the centre out at one layer height, turning into the wall through a fillet | Container, vessel; with "no wall", the spiral disc |
-| 2 | **Body profile**: the outline scaled along the height (points through a smooth curve, edited by dragging) | Vessel, container, lampshade bodies |
-| 3 | **Layers that follow the overhang**: closer layers where the wall leans out | Container, vessel, lampshade |
-| 4 | **Disc spacing and bumps**: spacing that spreads near a ring (attractor), odd bumps that interlock between turns | Spiral disc, the shaker's lid |
-| 5 | **Wall patterns**: weave and spikes, with their speeds and the fan during bumps | Coat hanger |
-| 6 | **Wall hanger**: the coat hanger's cut-out and pocket | Coat hanger |
-| 7 | **Shaped top**: another shape at the top (morph), lamp throat and socket thread | Lampshade, vessel's star top |
-| 8 | **Parts**: more than one spiral in a project, each its own G-code | Container + lid |
-| 9 | **Templates**: starting points in the New project sheet | All of the above, one tap away |
+- **Body profile**: the shape's size along the height, a smooth curve through points (height %,
+  scale %) that leaves and meets them level; edited as a list of points.
+- **Flat bottom**: flat spiral layers (rings one line apart linked into a spiral from the centre
+  out), turning into the wall through a quarter-circle fillet; the bead eases from the flat spiral's
+  into the wall's up the fillet.
+- **Flat spirals** (the bottom's and the lid's): their own layer height, line width and extrusion,
+  and several layers stacked, out, back in, out… (an odd count, so the last ends where the wall
+  starts), one line with no travel; the fillet and wall start on top of them.
+- **Extrusion** (wall and flat spirals): more plastic per move *at the same flow*, the move slows to
+  match.
+- **Closer layers on overhangs**, 0–250 %: 100 % climbs `layer × cos(lean)` per turn, above that
+  even less (`× cos^(pace − 1)`, so 250 % is `layer × cos^2.5`); straight walls keep full layers.
+- **Lid** (round shapes): a second part, printed upside down: a flat spiral whose turns spread
+  apart around a ring and interlock (the holes), a fillet, a skirt; the container gets a neck as
+  tall; both turn the same way so the lid screws on.
+- **Templates** in the New project sheet: "Salt & pepper shaker".
 
-And along the way: a points/curve editor field for the settings window (for the profile), a layer
-slider in the preview, G1 material presets for printer profiles (Ginger Slicer's), a brim.
+The three changes from the owner's EasyCAD chat are in: extrusion that keeps the flow, stacked flat
+spiral layers (default 3, odd), and closer layers on overhangs above 100 %.
+
+## EasyGCode's projects in ezgc (the owner's list, 22 Oct 2026)
+
+**Every EasyGCode project comes to ezgc eventually, except the spoon and the thread**, one or two at
+a time, as features of the spiral (or, for the bend stool, a kind of its own) plus a template.
+
+| Order | Project | Status | What it needs |
+|---|---|---|---|
+| 1 | **Container** as the salt & pepper shaker (container + spiral-disc lid with holes) | ✓ 22 Oct | Step 2 above |
+| 2 | **Lampshade**, with all its shades (straight cone, bell, dome, sphere, flat sphere/UFO), throat down or wide edge down | **next** | Shade profiles; the throat with its socket thread (E27, E14, custom); overhang compensation (wider bead or slower). **Note:** the shades also need *closer layers on overhangs above 100 %* (even tighter than `cos(lean)`); that setting already goes up to 250 % (built with the shaker), so the lampshade uses it |
+| 3 | **Coat hanger** | | Wall patterns (weave, spikes) with their speeds and the fan during bumps; the wall-hanger cut-out and pocket |
+| 4 | **Bend stool** | | Its own kind (not a spiral): concentric rings with seams, legs, stacked layers with travel, foaming |
+| 5 | **Vessel** | eventually | Mostly there (flat bottom, profile, overhang layers); bottom shapes, the star top (morph), randomize |
+| 6 | **Spiral disc** | eventually | The lid's flat spiral with holes on its own (no wall), its attractor and bumps settings |
+| ✗ | Spoon, thread | not wanted | |
+
+Still open from the earlier list: a shaped top (morph) for the lampshade and vessel, wall patterns
+and the hanger for the coat hanger; a layer slider in the preview, a curve you drag for the profile,
+G1 material presets for printer profiles (Ginger Slicer's), a brim.
 
 ## Later / when needed
 - The bend stool as its own kind.

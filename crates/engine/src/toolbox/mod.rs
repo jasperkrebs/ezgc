@@ -4,5 +4,8 @@
 //! a brim, a pattern) goes here, written once, so every kind can use it. Each step adds moves to a
 //! [`crate::toolpath::Toolpath`] and never writes G-code.
 
+pub mod disc;
+pub mod layers;
+pub mod profile;
 pub mod shapes;
 pub mod spiral;
