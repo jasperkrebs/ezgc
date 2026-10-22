@@ -1,4 +1,4 @@
-/* EasyGCode 2: phone-first, EasyGCode's look (the dark tokens are EasyGCode's own) with a light
+/* ezgc: phone-first, EasyGCode's look (the dark tokens are EasyGCode's own) with a light
    theme for daylight. Layout: an app shell that fills the screen (EasyCAD's): phone = header ·
    preview · panel; desktop = preview left, panel right. The page never scrolls; the panel
    does, so the preview stays in sight. */
@@ -694,4 +694,18 @@ dialog.sheet::backdrop {
 .project-item .open span {
   color: var(--muted);
   font-size: 0.8rem;
+}
+
+.linkish {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  text-decoration: underline;
+  font-size: inherit;
+}
+
+.printer-bar .field:first-child {
+  border-top: none;
+  padding-top: 0;
 }

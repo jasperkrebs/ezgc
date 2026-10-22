@@ -1,5 +1,5 @@
 [package]
-name = "easygcode-wasm"
+name = "ezgc-wasm"
 description = "WebAssembly facade the web app talks to (thin: converts values, nothing else)"
 version.workspace = true
 edition.workspace = true
@@ -11,7 +11,7 @@ publish.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-easygcode-engine = { workspace = true }
+ezgc-engine = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 wasm-bindgen = { workspace = true }

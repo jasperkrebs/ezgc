@@ -5,9 +5,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 BUDGET_GZIP_BYTES=$((1 * 1024 * 1024))
-WASM=target/wasm32-unknown-unknown/wasm/easygcode_wasm.wasm
+WASM=target/wasm32-unknown-unknown/wasm/ezgc_wasm.wasm
 
-cargo build -p easygcode-wasm --profile wasm --target wasm32-unknown-unknown --locked
+cargo build -p ezgc-wasm --profile wasm --target wasm32-unknown-unknown --locked
 
 # The CLI must match the wasm-bindgen crate version exactly.
 need=$(cargo metadata --format-version 1 --locked |
@@ -22,8 +22,8 @@ fi
 rm -rf web/pkg
 wasm-bindgen --target web --no-typescript --out-dir web/pkg "$WASM"
 
-raw=$(wc -c < web/pkg/easygcode_wasm_bg.wasm)
-gz=$(gzip -9 -c web/pkg/easygcode_wasm_bg.wasm | wc -c)
+raw=$(wc -c < web/pkg/ezgc_wasm_bg.wasm)
+gz=$(gzip -9 -c web/pkg/ezgc_wasm_bg.wasm | wc -c)
 echo "engine: $raw bytes, $gz bytes gzipped (budget $BUDGET_GZIP_BYTES)"
 if [ "$gz" -gt "$BUDGET_GZIP_BYTES" ]; then
   echo "The engine is over its size budget." >&2

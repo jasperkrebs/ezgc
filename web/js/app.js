@@ -1,9 +1,11 @@
-// EasyGCode 2: a project (a kind + its settings, as JSON) → the Rust engine (WebAssembly, in a
-// worker) → toolpaths in the 3D preview, a print estimate, and G-code to save.
+// ezgc: a project (a kind + its settings, as JSON) and a printer profile → the Rust engine
+// (WebAssembly, in a worker) → toolpaths in the 3D preview, a print estimate, and G-code to save.
 //
 // There are no tabs per project: a project names its kind, and its settings window is drawn from
-// the kind's schema. Projects live in a library on the device (Projects button), saved as you go,
-// and travel as JSON files. Every change runs the engine again, live; only the newest run counts.
+// the kind's schema. Projects and printer profiles live on the device (the Projects sheet and the
+// Printer tab), saved as you go, and travel as JSON files. A project doesn't hold a printer: it
+// prints on whichever printer is chosen here, so a project sent to someone prints on theirs. Every
+// change runs the engine again, live; only the newest run counts.
 
 import { createEngine } from './engine.js';
 import { createViewport } from './viewport.js';
@@ -11,8 +13,6 @@ import { createForm, set } from './form.js';
 import { bundle, createLibrary, parseFile, toFile } from './library.js';
 import { $, copyText, download, el, fmt, slug } from './dom.js';
 
-/** The printer settings of the last project changed: new projects start from them. */
-const LAST_PRINTER = 'easygcode2.lastPrinter';
 const TABS = ['settings', 'printer', 'gcode'];
 
 const engine = createEngine();
@@ -22,11 +22,13 @@ const library = createLibrary();
 const state = {
   /** The open project: its file, plus the library's id/created/modified. @type {any} */
   project: null,
+  /** The printer in use: `{ type: 'printer', name, settings }` plus bookkeeping. @type {any} */
+  printer: null,
   /** @type {{ id: string, name: string, description: string, version: number }[]} */
   kinds: [],
   /** Settings windows by kind: `{ info, groups, defaults }`. @type {Map<string, any>} */
   schemas: new Map(),
-  /** @type {any} */
+  /** `{ groups, machines }`. @type {any} */
   printerSchema: null,
   /** @type {ReturnType<typeof createForm> | null} */
   settingsForm: null,
@@ -38,24 +40,26 @@ const state = {
   refit: true,
 };
 
+const dialog = () => /** @type {HTMLDialogElement} */ ($('projects'));
+
 // ---------------------------------------------------------------------------------------------
-// Running the project
+// Running
 // ---------------------------------------------------------------------------------------------
 
 /** The project as the engine reads it: the file, bookkeeping left out. */
 const projectText = () => toFile(state.project);
+const printerText = () => JSON.stringify(state.printer.settings);
 
-/** What a run depends on (the name and notes don't change the toolpath). */
-const runKey = () => JSON.stringify([state.project.kind, state.project.settings, state.project.printer]);
+/** What a run depends on (names and notes don't change the toolpath). */
+const runKey = () => JSON.stringify([state.project.kind, state.project.settings, state.printer.settings]);
 
 async function run() {
-  if (!state.project) return;
-  const text = projectText();
+  if (!state.project || !state.printer) return;
   const key = runKey();
   $('status').setAttribute('aria-busy', 'true');
   let r;
   try {
-    r = await engine.run(text);
+    r = await engine.run(projectText(), printerText());
   } catch (err) {
     setStatus('Engine error', 'bad');
     renderNotices([{ kind: 'bad', text: String(err.message || err) }]);
@@ -68,27 +72,33 @@ async function run() {
   // The engine fills in defaults: keep the complete settings, unless they changed meanwhile.
   if (current && !r.error) {
     state.project.settings = r.settings;
-    state.project.printer = r.printer;
+    state.printer.settings = r.printer;
   }
-  // A result for older values must not put them back in the fields: show the project's own.
+  // A result for older values must not put them back in the fields: show the current ones.
   state.settingsForm?.update(current ? r.settings : state.project.settings, r.problems, r.hints);
-  state.printerForm?.update(current ? r.printer : state.project.printer, r.printerProblems, []);
+  state.printerForm?.update(current ? r.printer : state.printer.settings, r.printerProblems, []);
 
-  const machine = state.printerSchema?.machines.find((m) => m.id === r.printer?.model);
-  if (machine) viewport.setBed(machine.bed);
+  const bed = state.printer.settings.bed;
+  if (bed) viewport.setBed([bed.width, bed.depth]);
   const shown = viewport.show(r.preview || [], { refit: state.refit });
   state.refit = false;
   renderLegend(shown.feed);
 
   const notices = [];
   if (r.error) notices.push({ kind: 'bad', text: r.error });
-  const fix = r.problems.length + r.printerProblems.length;
-  if (fix) notices.push({ kind: 'bad', text: `Fix ${fix === 1 ? 'one setting' : `${fix} settings`} (marked in red) to see the toolpath.` });
+  if (r.problems.length) {
+    const n = r.problems.length;
+    notices.push({ kind: 'bad', text: `Fix ${n === 1 ? 'one setting' : `${n} settings`} (marked in red) to see the toolpath.` });
+  }
+  if (r.printerProblems.length) notices.push({ kind: 'bad', text: 'Fix the printer settings marked in red (Printer tab).' });
   for (const w of r.warnings) notices.push({ kind: 'warn', text: w });
   renderNotices(notices);
-  renderPrinterNotices(r);
+  $('printerNotices').replaceChildren(
+    ...(r.printerProblems.length ? [el('p', { className: 'notice bad', text: 'Fix the printer settings marked in red.' })] : []),
+  );
   renderParts(r);
 
+  const fix = r.problems.length + r.printerProblems.length;
   const message = $('viewMessage');
   message.hidden = Boolean(r.preview?.length);
   message.textContent = r.error || (fix ? 'Fix the settings marked in red.' : 'Nothing to show.');
@@ -100,7 +110,7 @@ async function run() {
 }
 
 let saveTimer = 0;
-/** Saves the project on the device soon (a burst of typing is one save). */
+/** Saves soon (a burst of typing is one save). */
 function saveSoon() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(saveNow, 400);
@@ -108,8 +118,8 @@ function saveSoon() {
 
 function saveNow() {
   clearTimeout(saveTimer);
-  if (!state.project) return;
-  state.project = library.save(state.project);
+  if (state.project) state.project = library.projects.save(state.project);
+  if (state.printer) state.printer = library.printers.save(state.printer);
   renderHeader();
 }
 
@@ -126,24 +136,18 @@ function onSettingChange(key, value) {
 
 /** @param {string} key @param {any} value */
 function onPrinterChange(key, value) {
-  change(() => {
-    state.project.printer = set(state.project.printer, key, value);
-    try {
-      localStorage.setItem(LAST_PRINTER, JSON.stringify(state.project.printer));
-    } catch {
-      // Not remembered for the next project; this one has it anyway.
-    }
-  });
+  change(() => (state.printer.settings = set(state.printer.settings, key, value)));
 }
 
 // ---------------------------------------------------------------------------------------------
-// Opening projects
+// Projects
 // ---------------------------------------------------------------------------------------------
 
 /** @param {any} project @param {{ save?: boolean }} [how] */
 async function openProject(project, how = {}) {
-  state.project = how.save ? library.save(project) : project;
-  library.setCurrent(state.project.id);
+  if (state.project) saveNow();
+  state.project = how.save ? library.projects.save(project) : project;
+  library.projects.setCurrent(state.project.id);
   state.refit = true;
   await ensureSettingsForm(state.project.kind);
   $('projectName').value = state.project.name || '';
@@ -168,20 +172,78 @@ async function ensureSettingsForm(kind) {
       return;
     }
   }
-  state.settingsForm = createForm($('settingsForm'), schema.groups, onSettingChange, { remember: `easygcode2.open.${kind}` });
+  state.settingsForm = createForm($('settingsForm'), schema.groups, onSettingChange, { remember: `ezgc.open.${kind}` });
   state.settingsKind = kind;
 }
 
-/** A new project of a kind, with the printer settings used last. */
 async function newProject(kind) {
-  const p = await engine.newProject(kind);
-  try {
-    const last = JSON.parse(localStorage.getItem(LAST_PRINTER) || 'null');
-    if (last && typeof last === 'object') p.printer = last;
-  } catch {
-    // The defaults, then.
+  await openProject(await engine.newProject(kind), { save: true });
+}
+
+/** Opens the last project, or any, or a new one. */
+async function openSomething() {
+  const id = library.projects.current();
+  const p = (id && library.projects.load(id)) || library.projects.all()[0];
+  if (p) await openProject(p);
+  else await newProject(state.kinds[0]?.id || 'spiral');
+}
+
+// ---------------------------------------------------------------------------------------------
+// Printers
+// ---------------------------------------------------------------------------------------------
+
+function machine(id) {
+  return state.printerSchema?.machines.find((m) => m.id === id);
+}
+
+/** A new printer profile based on a machine, saved. */
+async function makePrinter(model, name) {
+  const settings = await engine.newPrinter(model);
+  return library.printers.save({ type: 'printer', name: name || machine(model)?.name || model, settings });
+}
+
+/** Uses a printer for every project. */
+async function usePrinter(printer) {
+  if (state.printer) saveNow();
+  state.printer = printer;
+  library.printers.setCurrent(printer.id);
+  renderPrinterBar();
+  state.refit = true;
+  await run();
+}
+
+/** The printer in use last time, or any; the first time, one profile for each machine. */
+async function choosePrinter() {
+  if (!library.printers.list().length) {
+    let first = null;
+    for (const m of state.printerSchema.machines) {
+      const p = await makePrinter(m.id, m.name.replace(/ \(.*\)$/, ''));
+      first ??= p;
+    }
+    return first;
   }
-  await openProject(p, { save: true });
+  const id = library.printers.current();
+  return (id && library.printers.load(id)) || library.printers.all().at(-1);
+}
+
+function renderPrinterBar() {
+  const select = /** @type {HTMLSelectElement} */ ($('printerSelect'));
+  select.replaceChildren(
+    ...library.printers.list().sort((a, b) => a.name.localeCompare(b.name)).map((e) => el('option', { value: e.id, text: e.name || 'Untitled' })),
+  );
+  select.value = state.printer.id;
+  $('printerName').value = state.printer.name || '';
+  const m = machine(state.printer.settings.model);
+  $('printerBase').textContent = m ? `Based on the ${m.name}: its start and end G-code and its heater limits.` : '';
+  $('newPrinterChoice').replaceChildren(
+    ...state.printerSchema.machines.map((mm) =>
+      button(`+ ${mm.name}`, 'tiny', async () => {
+        $('newPrinterChoice').hidden = true;
+        await usePrinter(await makePrinter(mm.id, `My ${mm.name.replace(/ \(.*\)$/, '')}`));
+      }),
+    ),
+  );
+  renderHeader();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -202,18 +264,13 @@ function kindName(id) {
 function renderHeader() {
   const p = state.project;
   $('projectTitle').textContent = p ? p.name || 'Untitled' : '…';
-  $('projectKind').textContent = p ? kindName(p.kind) : '';
-  document.title = p ? `${p.name || 'Untitled'} · EasyGCode` : 'EasyGCode';
+  $('projectKind').textContent = state.printer ? `on ${state.printer.name || 'a printer'}` : '';
+  document.title = p ? `${p.name || 'Untitled'} · ezgc` : 'ezgc';
 }
 
 /** @param {{ kind: string, text: string }[]} list */
 function renderNotices(list) {
   $('notices').replaceChildren(...list.map((n) => el('p', { className: `notice ${n.kind}`, text: n.text })));
-}
-
-function renderPrinterNotices(r) {
-  const list = r.printerProblems.length ? [{ kind: 'bad', text: 'Fix the printer settings marked in red.' }] : [];
-  $('printerNotices').replaceChildren(...list.map((n) => el('p', { className: `notice ${n.kind}`, text: n.text })));
 }
 
 /** @param {number[] | null} feed */
@@ -271,7 +328,7 @@ function partCard(part, i, count) {
   async function gcode() {
     error.hidden = true;
     try {
-      return await engine.gcode(projectText(), i);
+      return await engine.gcode(projectText(), printerText(), i);
     } catch (err) {
       error.textContent = String(err.message || err);
       error.hidden = false;
@@ -314,8 +371,11 @@ function partCard(part, i, count) {
       }),
     );
   }
+  const forPrinter = el('button', { className: 'linkish', type: 'button', text: state.printer.name || 'the printer' });
+  forPrinter.addEventListener('click', () => selectTab('printer'));
   return el('section', { className: 'card part' }, [
     el('h2', { text: count > 1 ? part.name || `Part ${i + 1}` : 'Print' }),
+    el('p', { className: 'hint' }, ['For ', forPrinter]),
     el('dl', { className: 'stats' }, rows.map(([k, v]) => el('div', {}, [el('dt', { text: k }), el('dd', { text: v })]))),
     part.blocked ? el('p', { className: 'notice bad', text: `No G-code yet: ${part.blocked}` }) : null,
     el('div', { className: 'buttons' }, buttons),
@@ -346,7 +406,7 @@ function renderProjects() {
     ...state.kinds.map((k) => {
       const card = el('button', { className: 'kind-card', type: 'button' }, [el('b', { text: k.name }), el('span', { text: k.description })]);
       card.addEventListener('click', async () => {
-        /** @type {HTMLDialogElement} */ ($('projects')).close();
+        dialog().close();
         await newProject(k.id);
       });
       return card;
@@ -354,36 +414,39 @@ function renderProjects() {
   );
 
   const current = state.project?.id;
-  const items = library.list().map((e) => {
+  const items = library.projects.list().map((e) => {
     const when = new Date(e.modified);
     const open = el('button', { className: 'open', type: 'button' }, [
       el('b', { text: e.name || 'Untitled' }),
       el('span', { text: `${kindName(e.kind)} · ${Number.isNaN(when.getTime()) ? '' : when.toLocaleString()}` }),
     ]);
     open.addEventListener('click', async () => {
-      const p = library.load(e.id);
-      /** @type {HTMLDialogElement} */ ($('projects')).close();
+      const p = library.projects.load(e.id);
+      dialog().close();
       if (p) await openProject(p);
     });
     return el('li', { className: `project-item${e.id === current ? ' current' : ''}` }, [
       open,
       button('Duplicate', 'tiny', async () => {
         if (e.id === current) saveNow();
-        const copy = library.duplicate(e.id);
+        const copy = library.projects.duplicate(e.id);
         if (copy) {
-          /** @type {HTMLDialogElement} */ ($('projects')).close();
+          dialog().close();
           await openProject(copy);
         }
       }),
       button('Export', 'tiny', () => {
         if (e.id === current) saveNow();
-        const p = library.load(e.id);
-        if (p) download(`${slug(p.name)}.easygcode.json`, toFile(p), 'application/json');
+        const p = library.projects.load(e.id);
+        if (p) download(`${slug(p.name)}.ezgc.json`, toFile(p), 'application/json');
       }),
       button('Delete', 'tiny danger', async () => {
         if (!confirm(`Delete “${e.name || 'Untitled'}” from this device? Export it first to keep a copy.`)) return;
-        library.remove(e.id);
-        if (e.id === current) await openSomething();
+        library.projects.remove(e.id);
+        if (e.id === current) {
+          state.project = null;
+          await openSomething();
+        }
         renderProjects();
       }),
     ]);
@@ -391,14 +454,6 @@ function renderProjects() {
   $('projectList').replaceChildren(...items);
   if (!items.length) $('projectList').append(el('li', { className: 'hint', text: 'None yet.' }));
   $('storageNote').classList.toggle('error', !library.ok);
-}
-
-/** Opens the last project, or any, or a new one. */
-async function openSomething() {
-  const id = library.current();
-  const p = (id && library.load(id)) || library.list().map((e) => library.load(e.id)).find(Boolean);
-  if (p) await openProject(p);
-  else await newProject(state.kinds[0]?.id || 'vase');
 }
 
 async function openFile(file) {
@@ -410,9 +465,15 @@ async function openFile(file) {
     error.hidden = false;
     return;
   }
-  const saved = found.projects.map(({ id, created, modified, ...p }) => library.save(p));
-  /** @type {HTMLDialogElement} */ ($('projects')).close();
-  await openProject(saved[0]);
+  const strip = ({ id, created, modified, app, format, ...item }) => item;
+  const printers = found.printers.map((p) => library.printers.save(strip(p)));
+  const projects = found.projects.map((p) => library.projects.save(strip(p)));
+  dialog().close();
+  if (projects.length) await openProject(projects[0]);
+  if (printers.length && !projects.length) {
+    await usePrinter(printers[0]);
+    selectTab('printer');
+  } else if (printers.length) renderPrinterBar();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -430,9 +491,9 @@ for (const t of TABS) $(`tab-${t}`).addEventListener('click', () => selectTab(t)
 $('projectButton').addEventListener('click', () => {
   saveNow();
   renderProjects();
-  /** @type {HTMLDialogElement} */ ($('projects')).showModal();
+  dialog().showModal();
 });
-$('closeProjects').addEventListener('click', () => /** @type {HTMLDialogElement} */ ($('projects')).close());
+$('closeProjects').addEventListener('click', () => dialog().close());
 $('openFile').addEventListener('click', () => $('fileInput').click());
 $('fileInput').addEventListener('change', (e) => {
   const input = /** @type {HTMLInputElement} */ (e.target);
@@ -441,8 +502,7 @@ $('fileInput').addEventListener('change', (e) => {
 });
 $('exportAll').addEventListener('click', () => {
   saveNow();
-  const all = library.list().map((e) => library.load(e.id)).filter(Boolean);
-  download(`easygcode-backup-${new Date().toISOString().slice(0, 10)}.json`, bundle(all), 'application/json');
+  download(`ezgc-backup-${new Date().toISOString().slice(0, 10)}.json`, bundle(library.projects.all(), library.printers.all()), 'application/json');
 });
 $('projectName').addEventListener('input', (e) => {
   state.project.name = /** @type {HTMLInputElement} */ (e.target).value;
@@ -455,9 +515,41 @@ $('projectNotes').addEventListener('input', (e) => {
 });
 $('resetSettings').addEventListener('click', () => {
   const schema = state.schemas.get(state.project.kind);
-  if (!schema || !confirm('Set every setting of this project back to its default? (The printer settings stay.)')) return;
+  if (!schema || !confirm('Set every setting of this project back to its default?')) return;
   change(() => (state.project.settings = structuredClone(schema.defaults)));
 });
+
+$('printerSelect').addEventListener('change', async (e) => {
+  const p = library.printers.load(/** @type {HTMLSelectElement} */ (e.target).value);
+  if (p) await usePrinter(p);
+});
+$('printerName').addEventListener('input', (e) => {
+  state.printer.name = /** @type {HTMLInputElement} */ (e.target).value;
+  saveNow();
+  const option = /** @type {HTMLSelectElement} */ ($('printerSelect')).selectedOptions[0];
+  if (option) option.textContent = state.printer.name || 'Untitled';
+});
+$('newPrinter').addEventListener('click', () => ($('newPrinterChoice').hidden = !$('newPrinterChoice').hidden));
+$('duplicatePrinter').addEventListener('click', async () => {
+  saveNow();
+  const copy = library.printers.duplicate(state.printer.id);
+  if (copy) await usePrinter(copy);
+});
+$('exportPrinter').addEventListener('click', () => {
+  saveNow();
+  download(`printer-${slug(state.printer.name)}.ezgc.json`, toFile(state.printer), 'application/json');
+});
+$('deletePrinter').addEventListener('click', async () => {
+  if (library.printers.list().length < 2) {
+    alert('Keep at least one printer: make another one first.');
+    return;
+  }
+  if (!confirm(`Delete the printer “${state.printer.name || 'Untitled'}” from this device?`)) return;
+  library.printers.remove(state.printer.id);
+  state.printer = null;
+  await usePrinter(await choosePrinter());
+});
+
 $('showTravel').addEventListener('change', (e) => viewport.setTravel(/** @type {HTMLInputElement} */ (e.target).checked));
 $('refit').addEventListener('click', () => viewport.refit());
 window.addEventListener('pagehide', saveNow);
@@ -494,7 +586,10 @@ async function boot() {
   }
   state.kinds = await engine.kinds();
   state.printerSchema = await engine.printerSchema();
-  state.printerForm = createForm($('printerForm'), state.printerSchema.groups, onPrinterChange, { remember: 'easygcode2.open.printer' });
+  state.printerForm = createForm($('printerForm'), state.printerSchema.groups, onPrinterChange, { remember: 'ezgc.open.printer' });
+  state.printer = await choosePrinter();
+  library.printers.setCurrent(state.printer.id);
+  renderPrinterBar();
   await openSomething();
 }
 

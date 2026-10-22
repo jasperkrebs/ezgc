@@ -1,9 +1,13 @@
-//! Project kinds: what a project can be (a vase, later a disc, a stool, …).
+//! Project kinds: what a project can be.
 //!
-//! A kind is a small Rust module: its settings (a struct with EasyGCode-style defaults), the
-//! settings window for them ([`crate::schema`]), and a `generate` that composes toolbox steps into
-//! toolpaths. It never writes G-code and never touches the UI. A new EasyGCode project becomes a
-//! new kind here, not a new tab: the app lists kinds, and every project file names its kind.
+//! There is one today, and on purpose: the [`spiral`]. Almost every project is one continuous
+//! spiral, so they all grow from it, its settings switching rules and features on (a flat bottom
+//! that turns into the wall, a body profile, patterns, a shaped top). A project that genuinely isn't
+//! a spiral (the bend stool's concentric rings with legs) becomes a kind of its own here.
+//!
+//! A kind is a small Rust module: its settings (a struct with defaults), the settings window for
+//! them ([`crate::schema`]), and a `generate` that composes toolbox steps into toolpaths. It never
+//! writes G-code and never touches the UI. Every project file names its kind.
 
 use crate::printer::Printer;
 use crate::schema::Group;
@@ -12,7 +16,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-pub mod vase;
+pub mod spiral;
 
 /// What the app shows about a kind.
 #[derive(Debug, Clone, Serialize)]
@@ -58,7 +62,7 @@ pub trait Kind: Sync {
     fn migrate(&self, _settings: &mut Value, _from_version: u32) {}
 }
 
-static KINDS: [&dyn Kind; 1] = [&vase::Vase];
+static KINDS: [&dyn Kind; 1] = [&spiral::Spiral];
 
 pub fn all() -> &'static [&'static dyn Kind] {
     &KINDS

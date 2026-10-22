@@ -1,5 +1,5 @@
 [package]
-name = "easygcode-engine"
+name = "ezgc-engine"
 description = "EasyGCode's engine: projects (settings JSON) → toolpaths → G-code, with EasyGCode's bead model and start/end blocks (no UI, no I/O)"
 version.workspace = true
 edition.workspace = true

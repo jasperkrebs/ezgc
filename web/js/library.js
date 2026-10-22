@@ -1,86 +1,101 @@
-// The project library: every project on this device, saved as you go, plus project files in and
-// out. A project is EasyGCode 2's project file (see crates/engine/src/project.rs) with three
-// fields of bookkeeping the engine ignores: `id`, `created` and `modified`.
+// The library on this device: projects and printer profiles, saved as you go, plus files in and
+// out. A project is ezgc's project file (see crates/engine/src/project.rs); a printer profile is
+// `{ type: 'printer', name, settings }`. Both carry three fields of bookkeeping the engine never
+// sees: `id`, `created` and `modified`.
 //
-// Storage is the browser's localStorage, as in EasyGCode: one entry per project, an index, and the
-// previous version of each project as a backup in case an entry is ever damaged. iOS can clear a
-// web app's storage after weeks unused, so "Export all" (one file with every project) is the
-// durable copy, as EasyGCode's settings file was.
+// Storage is the browser's localStorage: one entry per item, an index per collection, and the
+// previous version of each item as a backup in case an entry is ever damaged. iOS can clear a web
+// app's storage after weeks unused, so "Export all" (one file with everything) is the durable copy.
 
-const PREFIX = 'easygcode2.';
-const INDEX = `${PREFIX}index`;
-const CURRENT = `${PREFIX}current`;
-const projectKey = (id) => `${PREFIX}p.${id}`;
+const PREFIX = 'ezgc.';
 
 /** @typedef {{ id: string, name: string, kind: string, modified: string }} Entry */
 
-/** A new project id: short, random, safe in a storage key. */
+/** A new id: short, random, safe in a storage key. */
 export function newId() {
   const bytes = new Uint8Array(8);
   globalThis.crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** The project as a file to save or share: the project itself, without this device's bookkeeping. */
-export function toFile(project) {
-  const { id, created, modified, ...file } = project;
-  return JSON.stringify(file, null, 2) + '\n';
+/** An item without this device's bookkeeping. */
+function strip(item) {
+  const { id, created, modified, ...rest } = item;
+  return rest;
 }
 
-/** Every project of this device as one file (a backup). */
-export function bundle(projects) {
-  return JSON.stringify({ app: 'easygcode', format: 2, projects: projects.map((p) => JSON.parse(toFile(p))) }, null, 2) + '\n';
+/** A project or printer as a file to save or share. */
+export function toFile(item) {
+  return JSON.stringify({ app: 'ezgc', format: 1, ...strip(item) }, null, 2) + '\n';
 }
+
+/** Everything on this device as one file (a backup). */
+export function bundle(projects, printers) {
+  return (
+    JSON.stringify(
+      { app: 'ezgc', format: 1, projects: projects.map(strip), printers: printers.map(strip) },
+      null,
+      2,
+    ) + '\n'
+  );
+}
+
+const isPrinter = (v) => v && typeof v === 'object' && v.type === 'printer' && v.settings && typeof v.settings === 'object';
+const isProject = (v) => v && typeof v === 'object' && typeof v.kind === 'string';
 
 /**
- * Reads a file: one project, or a backup of several. The engine checks each project when it's
- * opened; this only finds them.
+ * Reads a file: a project, a printer profile, or a backup of several. The engine checks each one
+ * when it's used; this only finds them.
  * @param {string} text
- * @returns {{ projects: any[] } | { error: string }}
+ * @returns {{ projects: any[], printers: any[] } | { error: string }}
  */
 export function parseFile(text) {
   let v;
   try {
     v = JSON.parse(text);
   } catch {
-    return { error: "That file isn't a project (it isn't JSON)." };
+    return { error: "That file isn't an ezgc file (it isn't JSON)." };
   }
-  if (!v || typeof v !== 'object') return { error: "That file isn't a project." };
-  if (Array.isArray(v.projects)) {
-    const projects = v.projects.filter((p) => p && typeof p === 'object' && typeof p.kind === 'string');
-    return projects.length ? { projects } : { error: 'That backup has no projects in it.' };
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return { error: "That file isn't an ezgc file." };
+  if (v.app !== undefined && v.app !== 'ezgc') return { error: `That file is from another app (${v.app}).` };
+  if (Array.isArray(v.projects) || Array.isArray(v.printers)) {
+    const projects = (v.projects || []).filter(isProject);
+    const printers = (v.printers || []).filter(isPrinter);
+    return projects.length || printers.length ? { projects, printers } : { error: 'That backup is empty.' };
   }
-  if (v.version === 1 && v.settings && v.format === undefined) {
-    return { error: "This is an EasyGCode 1 settings file (the old app's tabs). Opening those isn't built yet." };
-  }
-  if (typeof v.kind !== 'string') return { error: "That file isn't an EasyGCode 2 project (it has no kind)." };
-  return { projects: [v] };
+  if (isPrinter(v)) return { projects: [], printers: [v] };
+  if (isProject(v)) return { projects: [v], printers: [] };
+  return { error: "That file isn't an ezgc project or printer." };
 }
 
 /**
- * @param {Storage} [storage]
+ * One collection of the library (`projects` or `printers`).
+ * @param {Storage} storage
+ * @param {string} name
+ * @param {(item: any) => boolean} valid
+ * @param {{ ok: boolean }} health shared: whether the last write reached the device's storage
  */
-export function createLibrary(storage = globalThis.localStorage) {
-  /** Whether the last write reached the device's storage. */
-  let ok = true;
+function createStore(storage, name, valid, health) {
+  const INDEX = `${PREFIX}${name}`;
+  const CURRENT = `${PREFIX}${name}.current`;
+  const key = (id) => `${PREFIX}${name}.${id}`;
 
-  function read(key) {
+  function read(k) {
     try {
-      return storage.getItem(key);
+      return storage.getItem(k);
     } catch {
-      ok = false;
+      health.ok = false;
       return null;
     }
   }
 
-  function write(key, value) {
+  function write(k, value) {
     try {
-      storage.setItem(key, value);
-      ok = true;
+      storage.setItem(k, value);
+      health.ok = true;
     } catch {
-      ok = false; // full, or private browsing
+      health.ok = false; // full, or private browsing
     }
-    return ok;
   }
 
   /** @returns {Entry[]} */
@@ -93,28 +108,18 @@ export function createLibrary(storage = globalThis.localStorage) {
     }
   }
 
-  /** @param {Entry[]} entries */
-  function writeIndex(entries) {
-    write(INDEX, JSON.stringify(entries));
-  }
-
-  const lib = {
-    /** Whether storage works (false: private browsing or full; projects live only in this tab). */
-    get ok() {
-      return ok;
-    },
-
-    /** The projects on this device, the last changed first. @returns {Entry[]} */
+  const store = {
+    /** Newest first. @returns {Entry[]} */
     list() {
       return index().sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
     },
 
-    /** A project by id, or null. A damaged entry falls back to its previous version. */
+    /** An item by id, or null. A damaged entry falls back to its previous version. */
     load(id) {
-      for (const key of [projectKey(id), `${projectKey(id)}.prev`]) {
+      for (const k of [key(id), `${key(id)}.prev`]) {
         try {
-          const p = JSON.parse(read(key) || 'null');
-          if (p && typeof p === 'object' && typeof p.kind === 'string') return { ...p, id };
+          const item = JSON.parse(read(k) || 'null');
+          if (valid(item)) return { ...item, id };
         } catch {
           // Damaged: try the backup.
         }
@@ -122,45 +127,44 @@ export function createLibrary(storage = globalThis.localStorage) {
       return null;
     },
 
-    /**
-     * Saves a project (a new one gets an id), and returns it as saved.
-     * @param {any} project
-     */
-    save(project) {
-      const now = new Date().toISOString();
-      const p = { ...project, id: project.id || newId(), created: project.created || now, modified: now };
-      const key = projectKey(p.id);
-      const text = JSON.stringify(p);
-      const prev = read(key);
-      if (prev && prev !== text) write(`${key}.prev`, prev);
-      write(key, text);
-      const entries = index().filter((e) => e.id !== p.id);
-      entries.push({ id: p.id, name: String(p.name || ''), kind: p.kind, modified: now });
-      writeIndex(entries);
-      return p;
+    /** Every item, newest first. */
+    all() {
+      return store.list().map((e) => store.load(e.id)).filter(Boolean);
     },
 
-    /** Deletes a project from this device. */
+    /** Saves an item (a new one gets an id) and returns it as saved. */
+    save(item) {
+      const now = new Date().toISOString();
+      const saved = { ...item, id: item.id || newId(), created: item.created || now, modified: now };
+      const k = key(saved.id);
+      const text = JSON.stringify(saved);
+      const prev = read(k);
+      if (prev && prev !== text) write(`${k}.prev`, prev);
+      write(k, text);
+      const entries = index().filter((e) => e.id !== saved.id);
+      entries.push({ id: saved.id, name: String(saved.name || ''), kind: saved.kind || saved.settings?.model || '', modified: now });
+      write(INDEX, JSON.stringify(entries));
+      return saved;
+    },
+
     remove(id) {
       try {
-        storage.removeItem(projectKey(id));
-        storage.removeItem(`${projectKey(id)}.prev`);
+        storage.removeItem(key(id));
+        storage.removeItem(`${key(id)}.prev`);
       } catch {
-        ok = false;
+        health.ok = false;
       }
-      writeIndex(index().filter((e) => e.id !== id));
-      if (lib.current() === id) write(CURRENT, '');
+      write(INDEX, JSON.stringify(index().filter((e) => e.id !== id)));
+      if (store.current() === id) write(CURRENT, '');
     },
 
-    /** A copy of a project, saved under a new id. */
+    /** A copy, saved under a new id. */
     duplicate(id) {
-      const p = lib.load(id);
-      if (!p) return null;
-      const { id: _, created, modified, ...rest } = p;
-      return lib.save({ ...rest, name: `${p.name || 'Project'} (copy)` });
+      const item = store.load(id);
+      return item ? store.save({ ...strip(item), name: `${item.name || 'Untitled'} (copy)` }) : null;
     },
 
-    /** The project open last time. */
+    /** The one in use. */
     current() {
       return read(CURRENT) || null;
     },
@@ -169,5 +173,18 @@ export function createLibrary(storage = globalThis.localStorage) {
       write(CURRENT, id || '');
     },
   };
-  return lib;
+  return store;
+}
+
+/** @param {Storage} [storage] */
+export function createLibrary(storage = globalThis.localStorage) {
+  const health = { ok: true };
+  return {
+    projects: createStore(storage, 'projects', isProject, health),
+    printers: createStore(storage, 'printers', isPrinter, health),
+    /** Whether storage works (false: private browsing or full; items live only in this tab). */
+    get ok() {
+      return health.ok;
+    },
+  };
 }

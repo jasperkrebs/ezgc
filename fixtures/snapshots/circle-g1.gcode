@@ -1,7 +1,6 @@
-; EasyGCode — coat hanger (vase mode) generator
-; shape=circle tolerance=0.05mm seam=back
-; layerHeight=0.6 lineWidth=2 totalHeight=6 direction=CCW
-; printFeed=1800 travelFeed=6000 (mm/min)
+; ezgc — Spiral: Circle on the G1
+; spiral: shape=circle tolerance=0.05mm start=back direction=CCW top=flat
+; height=6 layerHeight=0.6 lineWidth=2 flow=20 mm3/s -> feed 1069 mm/min (bead area 1.123 mm2)
 ; printer=pellet multiplier=1 (E in mm^3, volumetric)
 ; --- start G-code (pellet / Klipper) ---
 SET_PRESSURE_ADVANCE EXTRUDER=extruder SMOOTH_TIME=0.04
@@ -34,9 +33,9 @@ _GINGER_BUZZER_TONE_INITIAL
 ; --- end of start G-code ---
 G90 ; absolute positioning
 M83 ; relative extrusion
-; --- vase spiral ---
+; --- spiral ---
 G0 X125.000 Y155.000 Z0.000 F6000
-G1 X123.562 Y154.931 Z0.005 E0.00617 F1800
+G1 X123.562 Y154.931 Z0.005 E0.00617 F1069
 G1 X122.125 Y154.862 Z0.009 E0.01852
 G1 X120.700 Y154.655 Z0.014 E0.03086
 G1 X119.276 Y154.449 Z0.018 E0.04321

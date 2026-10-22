@@ -1,7 +1,6 @@
-; EasyGCode — coat hanger (vase mode) generator
-; shape=roundedRect tolerance=0.05mm seam=front
-; layerHeight=0.3 lineWidth=0.6 totalHeight=2.55 direction=CW
-; volumetric flow mode: target 8 mm3/s (bead area 0.16mm2) -> printFeed=2987 travelFeed=9000 (mm/min)
+; ezgc — Spiral: Rounded rectangle on the P1P
+; spiral: shape=roundedRect tolerance=0.05mm start=front direction=CW top=open
+; height=2.55 layerHeight=0.3 lineWidth=0.6 flow=8 mm3/s -> feed 2987 mm/min (bead area 0.161 mm2)
 ; printer=filament multiplier=0.95 filamentDiameter=1.75 (E in mm of filament)
 ; --- start G-code (filament / Marlin) ---
 M140 S65 ; set bed temp
@@ -30,7 +29,7 @@ M106 S0 ; fan off for the ramp loop
 ; --- end of start G-code ---
 G90 ; absolute positioning
 M83 ; relative extrusion
-; --- vase spiral ---
+; --- spiral ---
 G0 X128.000 Y108.008 Z0.000 F9000
 G1 X127.407 Y108.009 Z0.001 E0.00006 F2987
 G1 X126.815 Y108.009 Z0.002 E0.00018
@@ -356,7 +355,7 @@ G1 X129.784 Y108.008 Z0.297 E0.03731
 G1 X129.189 Y108.008 Z0.298 E0.03743
 G1 X128.595 Y108.008 Z0.299 E0.03756
 G1 X128.000 Y108.008 Z0.300 E0.03768
-M106 S204 ; part cooling fan on after ramp loop
+M106 S204 ; part cooling fan on
 G1 X105.477 Y108.017 Z0.336 E1.42944
 G1 X103.929 Y108.273 Z0.339 E0.09953
 G1 X102.939 Y108.609 Z0.341 E0.06641

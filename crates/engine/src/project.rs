@@ -1,23 +1,23 @@
-//! The project file: one JSON document per project, as EasyGCode saved its settings.
+//! The project file: one JSON document per project.
 //!
 //! ```json
-//! { "app": "easygcode", "format": 2, "kind": "vase", "kindVersion": 1,
+//! { "app": "ezgc", "format": 1, "kind": "spiral", "kindVersion": 1,
 //!   "name": "Tall vase", "notes": "",
-//!   "settings": { "shape": { "kind": "circle", "circle": { "radius": 30 } }, "height": 120 },
-//!   "printer": { "model": "g1", "pellet": { "up": 200 } } }
+//!   "settings": { "shape": { "kind": "circle", "circle": { "radius": 30 } }, "height": 120 } }
 //! ```
 //!
-//! `settings` holds the kind's settings and `printer` the printer's, each as complete or as
-//! partial as you like: what's missing takes its default ([`crate::schema::normalize`]), so a
-//! project saved before a setting existed opens with it at the value that prints as before. The
+//! `settings` holds the kind's settings, as complete or as partial as you like: what's missing
+//! takes its default ([`crate::schema::normalize`]), so a project saved before a setting existed
+//! opens with it at the value that prints as before. The printer isn't part of the project: it's
+//! a profile on the device ([`crate::printer`]), so the same project prints on any printer. The
 //! app adds its own bookkeeping (an id, dates) next to these; the engine ignores it.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const APP: &str = "easygcode";
-/// The file format. EasyGCode 1 wrote `{ "app": "easygcode", "version": 1, "settings": … }`.
-pub const FORMAT: u32 = 2;
+pub const APP: &str = "ezgc";
+/// The file format.
+pub const FORMAT: u32 = 1;
 /// Project files are small; anything bigger isn't one.
 pub const MAX_BYTES: usize = 1024 * 1024;
 
@@ -37,8 +37,6 @@ pub struct Project {
     pub notes: String,
     #[serde(default)]
     pub settings: Value,
-    #[serde(default)]
-    pub printer: Value,
 }
 
 fn app() -> String {
@@ -51,29 +49,29 @@ fn format() -> u32 {
 
 /// Reads a project file. Every way it can be wrong becomes a message.
 pub fn parse(text: &str) -> Result<Project, String> {
-    if text.len() > MAX_BYTES {
-        return Err("That file is too big to be a project.".into());
-    }
-    let v: Value =
-        serde_json::from_str(text).map_err(|e| format!("That isn't a project file ({e})."))?;
-    if !v.is_object() {
-        return Err("That isn't a project file.".into());
-    }
-    if v.get("format").is_none() && v.get("version").is_some() {
-        return Err("This is an EasyGCode 1 settings file (the old app's tabs). Opening those isn't built yet.".into());
-    }
-    match v.get("app").and_then(Value::as_str) {
-        None | Some(APP) => {}
-        Some(other) => return Err(format!("That file is from another app ({other}).")),
-    }
+    let v = parse_json(text, "project")?;
     let p: Project =
         serde_json::from_value(v).map_err(|e| format!("That project file is damaged ({e})."))?;
     if p.format > FORMAT {
-        return Err(
-            "That project was saved by a newer EasyGCode: reload the app to update it.".into(),
-        );
+        return Err("That project was saved by a newer ezgc: reload the app to update it.".into());
     }
     Ok(p)
+}
+
+/// Reads a JSON document of ezgc's (a project or a printer's settings): an object, of this app.
+pub fn parse_json(text: &str, what: &str) -> Result<Value, String> {
+    if text.len() > MAX_BYTES {
+        return Err(format!("That file is too big to be a {what}."));
+    }
+    let v: Value =
+        serde_json::from_str(text).map_err(|e| format!("That isn't a {what} file ({e})."))?;
+    if !v.is_object() {
+        return Err(format!("That isn't a {what} file."));
+    }
+    match v.get("app").and_then(Value::as_str) {
+        None | Some(APP) => Ok(v),
+        Some(other) => Err(format!("That file is from another app ({other}).")),
+    }
 }
 
 #[cfg(test)]
@@ -82,8 +80,8 @@ mod tests {
 
     #[test]
     fn a_minimal_file_opens() {
-        let p = parse(r#"{ "kind": "vase" }"#).unwrap();
-        assert_eq!(p.app, "easygcode");
+        let p = parse(r#"{ "kind": "spiral" }"#).unwrap();
+        assert_eq!(p.app, "ezgc");
         assert_eq!(p.format, FORMAT);
         assert_eq!(p.settings, Value::Null);
     }
@@ -95,15 +93,10 @@ mod tests {
         assert!(
             parse(r#"{ "app": "easygcode", "version": 1, "settings": {} }"#)
                 .unwrap_err()
-                .contains("EasyGCode 1")
-        );
-        assert!(
-            parse(r#"{ "app": "other", "kind": "vase" }"#)
-                .unwrap_err()
                 .contains("another app")
         );
         assert!(
-            parse(r#"{ "format": 99, "kind": "vase" }"#)
+            parse(r#"{ "format": 99, "kind": "spiral" }"#)
                 .unwrap_err()
                 .contains("newer")
         );

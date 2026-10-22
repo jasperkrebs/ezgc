@@ -1,11 +1,10 @@
-; EasyGCode — coat hanger (vase mode) generator
-; shape=star tolerance=0.1mm seam=right
-; layerHeight=0.4 lineWidth=1.2 totalHeight=1.5 direction=CCW
-; volumetric flow mode: target 15 mm3/s (bead area 0.45mm2) -> printFeed=2019 travelFeed=6000 (mm/min)
+; ezgc — Spiral: Star without start and end blocks
+; spiral: shape=star tolerance=0.1mm start=right direction=CCW top=flat
+; height=1.5 layerHeight=0.4 lineWidth=1.2 flow=15 mm3/s -> feed 2019 mm/min (bead area 0.446 mm2)
 ; printer=pellet multiplier=1 (E in mm^3, volumetric)
 G90 ; absolute positioning
 M83 ; relative extrusion
-; --- vase spiral ---
+; --- spiral ---
 G0 X147.610 Y125.000 Z0.000 F6000
 G1 X148.431 Y125.832 Z0.002 E0.00132 F2019
 G1 X149.253 Y126.664 Z0.004 E0.00397

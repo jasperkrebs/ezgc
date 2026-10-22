@@ -1,13 +1,12 @@
-//! Numbers exactly as EasyGCode's JavaScript computes and prints them.
+//! Numbers as JavaScript computes and prints them, the same on every build.
 //!
-//! The golden tests require G-code identical to EasyGCode's, so the few places where JavaScript
-//! and Rust differ are reproduced here: `toFixed` rounding, `Math.round`, `Math.hypot` (V8 sums
-//! the squares with Kahan compensation after scaling by the largest value, so it can differ from
-//! `sqrt(x² + y²)` in the last bit), and `Math.sin`, `Math.cos` and `Math.pow`, which V8
-//! computes with its own copy of fdlibm. Ported here, they give the same bits natively and in
-//! WebAssembly as EasyGCode gets under Node.js, where the golden fixtures come from. (A browser's
-//! JavaScript engine may use another sine, so EasyGCode itself can differ in the last bit from
-//! one browser to the next; this engine gives the same G-code everywhere.)
+//! G-code numbers are written the way EasyGCode wrote them (`toFixed` rounding, `Math.round`), and
+//! distances and trigonometry use V8's own `Math.hypot` (the squares summed with Kahan compensation
+//! after scaling by the largest value, which can differ from `sqrt(x² + y²)` in the last bit) and
+//! its fdlibm `Math.sin`, `Math.cos` and `Math.pow`. Ported here, they give the same bits natively
+//! and in WebAssembly, so the tests see exactly what the browser computes (a platform's own `sin`
+//! differs in the last bit now and then, enough to flip a tie when an outline is simplified), and
+//! the geometry still matches EasyGCode's under Node.js should a comparison ever be wanted.
 
 /// Numbers as JavaScript's `Number.prototype.toFixed` writes them: rounded half away from zero
 /// on the exact value (Rust rounds exact ties to even), and never "-0.000" for negative zero.

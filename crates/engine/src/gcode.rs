@@ -1,12 +1,12 @@
 //! G-code for a toolpath, in EasyGCode's dialect: the one writer every project kind shares.
 //!
-//! G-code drives real machines, so this follows EasyGCode's proven output exactly (`gcode.js`):
+//! G-code drives real machines, so this follows EasyGCode's proven output (`gcode.js`):
 //! absolute positioning (G90) with relative extrusion (M83); every `G1 E` is the segment's
 //! volume (bead area × length × flow) in mm³ for the pellet printer or in mm of filament for the
 //! filament printer, times the extrusion multiplier; coordinates with 3 decimals and E with 5,
 //! rounded like JavaScript's `toFixed`; F whenever the feed changes (before rounding, as
-//! EasyGCode compares it); and the start and end blocks copied verbatim from EasyGCode. The golden
-//! tests compare the output with G-code produced by EasyGCode itself (`fixtures/easygcode/`).
+//! EasyGCode compares it); and the start and end blocks copied verbatim from EasyGCode. The
+//! snapshot tests (`fixtures/snapshots/`) catch any change to the output.
 //!
 //! Before writing anything, the toolpath is checked: every point must be on the bed and inside
 //! the build height, every extrusion amount and feed sane, and every temperature one the machine
@@ -169,10 +169,7 @@ pub fn write(
     let start_end = printer.include_start_end;
 
     let mut lines: Vec<String> = Vec::with_capacity(path.moves.len() + 80);
-    lines.push(format!(
-        "; EasyGCode 2 — {}",
-        title.replace(['\n', '\r'], " ")
-    ));
+    lines.push(format!("; ezgc — {}", title.replace(['\n', '\r'], " ")));
     lines.extend(
         header
             .iter()
@@ -276,7 +273,7 @@ pub fn write(
     flush(&mut lines, usize::MAX);
     if start_end {
         // Lift clear of the print, but never past the build height (Klipper refuses such a move).
-        let lift = (max_z + printer.end_lift.max(0.0)).min(printer.machine().bed[2].max(max_z));
+        let lift = (max_z + printer.end_lift.max(0.0)).min(printer.bed.height.max(max_z));
         lines.extend(match mode {
             Mode::Filament => marlin_end(lift),
             Mode::Pellet => klipper_end(lift),
@@ -311,6 +308,9 @@ pub fn check(path: &Toolpath, p: &Printer) -> Result<(), String> {
         p.pellet.pa,
         p.pellet.purge,
         p.pellet.fan,
+        p.bed.width,
+        p.bed.depth,
+        p.bed.height,
     ];
     if !settings.iter().all(|v| v.is_finite()) {
         return Err("a printer setting is not a number".into());
@@ -369,7 +369,10 @@ pub fn check(path: &Toolpath, p: &Printer) -> Result<(), String> {
             }
         }
     }
-    let [bx, by, bz] = machine.bed;
+    let (bx, by, bz) = (p.bed.width, p.bed.depth, p.bed.height);
+    if !(bx > 0.0 && by > 0.0 && bz > 0.0) {
+        return Err("the bed has no size".into());
+    }
     for (i, m) in path.moves.iter().enumerate() {
         let (x, y, z) = (m.to[0] + p.center_x, m.to[1] + p.center_y, m.to[2]);
         if !(x.is_finite() && y.is_finite() && z.is_finite()) {
@@ -497,9 +500,9 @@ mod tests {
         let err = write(&ring(area, 1200.0), &off_bed, "x", &[]).unwrap_err();
         assert!(err.contains("leaves the bed"), "{err}");
         let p1p = Printer {
-            model: "p1p".into(),
             center_x: 250.0,
-            ..bare()
+            include_start_end: false,
+            ..Printer::new("p1p").unwrap()
         };
         assert!(
             write(&ring(area, 1200.0), &p1p, "x", &[])
@@ -533,10 +536,7 @@ mod tests {
         assert!(pellet.ends_with(
             "G0 Z50.600 F3000 ; lift clear of the print for finishing\nTURN_OFF_HEATERS ; zones + bed off\nM106 S0 ; fan off\nM84 ; disable steppers\n"
         ));
-        let filament = Printer {
-            model: "p1p".into(),
-            ..Printer::default()
-        };
+        let filament = Printer::new("p1p").unwrap();
         let mut path = ring(area, 1200.0);
         path.events.push((2, Event::FanOn));
         let text = write(&path, &filament, "x", &[]).unwrap();
@@ -544,9 +544,8 @@ mod tests {
         assert!(text.contains("M106 S255 ; part cooling fan on\n"));
         // The end lift stops at the build height (the P1P's is 256 mm).
         let tall = Printer {
-            model: "p1p".into(),
             end_lift: 1000.0,
-            ..Printer::default()
+            ..Printer::new("p1p").unwrap()
         };
         let text = write(&ring(area, 1200.0), &tall, "x", &[]).unwrap();
         assert!(text.contains("G0 Z256.000 F8000 ; lift clear of the print for finishing\n"));

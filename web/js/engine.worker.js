@@ -2,7 +2,7 @@
 // (scripts/build-web.sh). Preview arrays go back to the page as transferables: moved, not copied.
 // Every request carries an id, and its answer (result, error or crash) carries the same id.
 
-import init, * as engine from '../pkg/easygcode_wasm.js';
+import init, * as engine from '../pkg/ezgc_wasm.js';
 
 const started = performance.now();
 const loading = init()
@@ -25,11 +25,13 @@ function answer(msg) {
       return { result: JSON.parse(engine.printerSchema()), transfer: [] };
     case 'newProject':
       return { result: JSON.parse(engine.newProject(msg.kind)), transfer: [] };
+    case 'newPrinter':
+      return { result: JSON.parse(engine.newPrinter(msg.model)), transfer: [] };
     case 'gcode':
-      return { result: engine.gcode(msg.project, msg.part), transfer: [] };
+      return { result: engine.gcode(msg.project, msg.printer, msg.part), transfer: [] };
     case 'run': {
       const t0 = performance.now();
-      const r = engine.run(msg.project);
+      const r = engine.run(msg.project, msg.printer);
       const ms = performance.now() - t0;
       const parts = Array.from(r.parts);
       const transfer = parts.flatMap((p) => [p.positions.buffer, p.feeds.buffer, p.travel.buffer]);

@@ -1,11 +1,13 @@
-//! Printers: the machines EasyGCode writes for, and the per-project printer settings.
+//! Printers: the machines ezgc writes for, and the printer profiles on a device.
 //!
-//! A machine is data (bed, mode, limits); what only one machine has (the Ginger G1's macros) lives
-//! in its start and end blocks (`gcode.rs`). The settings a project keeps for its printer are a
-//! plain JSON object, edited through the same schema-driven settings window as the project's own
-//! settings ([`schema`]), so adding a field is one line here and one in [`Printer`].
+//! A machine is what ezgc knows about a printer model (mode, heater limits, a typical bed); what
+//! only one machine has (the Ginger G1's macros) lives in its start and end blocks (`gcode.rs`).
+//! A printer profile is a person's own printer: based on a machine, with its own bed, temperatures,
+//! placement and material. Profiles live on the device, apart from projects, so one project prints
+//! on any printer, and a project sent to someone else prints on theirs. Its settings are a plain
+//! JSON object, edited through the same schema-driven settings window as a project's ([`schema`]).
 
-use crate::schema::{Group, choice, group, number, toggle};
+use crate::schema::{Group, group, number, toggle};
 use serde::{Deserialize, Serialize};
 
 /// Which kind of machine, and so which start/end blocks and E units.
@@ -25,7 +27,7 @@ pub struct Machine {
     pub id: &'static str,
     pub name: &'static str,
     pub mode: Mode,
-    /// Bed width, depth and build height in mm: every move must stay inside.
+    /// Bed width, depth and build height in mm, for a new profile of this machine.
     pub bed: [f64; 3],
     /// The most volumetric flow it melts reliably (mm³/s), for a warning.
     pub max_flow: f64,
@@ -127,12 +129,34 @@ pub struct Material {
     pub price: f64,
 }
 
-/// A project's printer settings. Defaults are EasyGCode's.
+/// The bed, mm: every move must stay inside.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Bed {
+    pub width: f64,
+    pub depth: f64,
+    /// Build height.
+    pub height: f64,
+}
+
+impl Default for Bed {
+    fn default() -> Self {
+        let [width, depth, height] = MACHINES[0].bed;
+        Bed {
+            width,
+            depth,
+            height,
+        }
+    }
+}
+
+/// A printer profile's settings. Defaults are EasyGCode's, on the Ginger G1.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Printer {
-    /// A [`Machine`] id.
+    /// The [`Machine`] it's based on (chosen when the profile is made).
     pub model: String,
+    pub bed: Bed,
     /// Extrusion multiplier.
     pub multiplier: f64,
     /// Include the start and end G-code blocks.
@@ -141,7 +165,7 @@ pub struct Printer {
     pub end_lift: f64,
     /// Travel feed in mm/min.
     pub travel_feed: f64,
-    /// Where the part's origin sits on the bed, in mm.
+    /// Where a part's origin sits on the bed, in mm.
     pub center_x: f64,
     pub center_y: f64,
     pub filament: Filament,
@@ -152,7 +176,8 @@ pub struct Printer {
 impl Default for Printer {
     fn default() -> Self {
         Printer {
-            model: "g1".into(),
+            model: MACHINES[0].id.into(),
+            bed: Bed::default(),
             multiplier: 1.0,
             include_start_end: true,
             end_lift: 50.0,
@@ -167,7 +192,22 @@ impl Default for Printer {
 }
 
 impl Printer {
-    /// The machine, falling back to the first one for an unknown id (the schema check reports it).
+    /// A new profile of a machine, with its own bed.
+    pub fn new(model: &str) -> Option<Printer> {
+        let m = machine(model)?;
+        let [width, depth, height] = m.bed;
+        Some(Printer {
+            model: m.id.into(),
+            bed: Bed {
+                width,
+                depth,
+                height,
+            },
+            ..Printer::default()
+        })
+    }
+
+    /// The machine, falling back to the first one for an unknown id (`run` reports it).
     pub fn machine(&self) -> &'static Machine {
         machine(&self.model).unwrap_or(&MACHINES[0])
     }
@@ -185,46 +225,17 @@ impl Printer {
     }
 }
 
-/// The printer's settings window: the same field kinds as a project's.
+/// The printer's settings window: the same field kinds as a project's. The machine it's based on
+/// isn't a field: it's chosen when the profile is made.
 pub fn schema() -> Vec<Group> {
-    let models: Vec<(&'static str, &'static str)> =
-        MACHINES.iter().map(|m| (m.id, m.name)).collect();
     let g1 = &MACHINES[0];
     vec![
         group(
-            "Printer",
+            "Temperatures",
             vec![
-                choice("model", "Printer", &models),
-                toggle("includeStartEnd", "Start and end G-code"),
-                number("multiplier", "Extrusion multiplier", "×", 0.01, 5.0)
-                    .help("Scales every E value, for fine-tuning a material."),
-            ],
-        )
-        .open(),
-        group(
-            "Temperatures (pellets)",
-            vec![
-                number(
-                    "pellet.up",
-                    "Upper zone (feeding)",
-                    "°C",
-                    g1.min_extrude_temp,
-                    g1.max_temp,
-                ),
-                number(
-                    "pellet.mid",
-                    "Middle zone (melting)",
-                    "°C",
-                    g1.min_extrude_temp,
-                    g1.max_temp,
-                ),
-                number(
-                    "pellet.down",
-                    "Lower zone (nozzle)",
-                    "°C",
-                    g1.min_extrude_temp,
-                    g1.max_temp,
-                ),
+                number("pellet.up", "Upper zone (feeding)", "°C", g1.min_extrude_temp, g1.max_temp),
+                number("pellet.mid", "Middle zone (melting)", "°C", g1.min_extrude_temp, g1.max_temp),
+                number("pellet.down", "Lower zone (nozzle)", "°C", g1.min_extrude_temp, g1.max_temp),
                 number("pellet.bed", "Bed", "°C", 0.0, g1.max_bed),
                 number("pellet.pa", "Pressure advance", "", 0.0, 5.0)
                     .help("0 for vase mode, otherwise 0.2–0.7 on the G1."),
@@ -236,7 +247,7 @@ pub fn schema() -> Vec<Group> {
         .when("model", &["g1"])
         .open(),
         group(
-            "Temperatures (filament)",
+            "Temperatures",
             vec![
                 number("filament.nozzle", "Nozzle", "°C", 0.0, 300.0),
                 number("filament.bed", "Bed", "°C", 0.0, 110.0),
@@ -247,10 +258,27 @@ pub fn schema() -> Vec<Group> {
         .when("model", &["p1p"])
         .open(),
         group(
-            "Placement and moves",
+            "Extrusion",
             vec![
-                number("centerX", "Part centre X", "mm", 0.0, 1000.0),
-                number("centerY", "Part centre Y", "mm", 0.0, 1000.0),
+                number("multiplier", "Extrusion multiplier", "×", 0.01, 5.0)
+                    .help("Scales every E value, for fine-tuning a material."),
+                toggle("includeStartEnd", "Start and end G-code"),
+            ],
+        )
+        .open(),
+        group(
+            "Bed and placement",
+            vec![
+                number("bed.width", "Bed width (X)", "mm", 10.0, 5000.0),
+                number("bed.depth", "Bed depth (Y)", "mm", 10.0, 5000.0),
+                number("bed.height", "Build height", "mm", 1.0, 5000.0),
+                number("centerX", "Part centre X", "mm", 0.0, 5000.0),
+                number("centerY", "Part centre Y", "mm", 0.0, 5000.0),
+            ],
+        ),
+        group(
+            "Moves",
+            vec![
                 number("travelFeed", "Travel feed", "mm/min", 60.0, 18_000.0),
                 number("endLift", "Lift at the end", "mm", 0.0, 1000.0)
                     .help("Above the tallest point printed, to reach in and finish the part by hand."),
@@ -264,4 +292,29 @@ pub fn schema() -> Vec<Group> {
             ],
         ),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema::{keys, leaf_keys};
+
+    #[test]
+    fn every_setting_but_the_model_has_a_field() {
+        let mut fields = keys(&schema());
+        let mut leaves = leaf_keys(&serde_json::to_value(Printer::default()).unwrap());
+        leaves.retain(|k| k != "model");
+        fields.sort();
+        leaves.sort();
+        assert_eq!(fields, leaves);
+    }
+
+    #[test]
+    fn a_new_profile_takes_its_machines_bed() {
+        let p = Printer::new("p1p").unwrap();
+        assert_eq!(p.bed.width, 256.0);
+        assert_eq!(p.mode(), Mode::Filament);
+        assert_eq!(Printer::new("g1").unwrap(), Printer::default());
+        assert!(Printer::new("nope").is_none());
+    }
 }

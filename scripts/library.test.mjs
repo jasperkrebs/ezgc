@@ -1,4 +1,4 @@
-// The project library and settings helpers, without a browser:
+// The library (projects and printer profiles on the device) and its files, without a browser:
 //
 //   node --test scripts/library.test.mjs
 
@@ -17,71 +17,93 @@ function memoryStorage() {
       m.set(k, String(v));
     },
     removeItem: (k) => m.delete(k),
-    keys: () => [...m.keys()],
   };
 }
 
-const vase = (name, settings = {}) => ({ app: 'easygcode', format: 2, kind: 'vase', name, settings, printer: {} });
+const spiral = (name, settings = {}) => ({ app: 'ezgc', format: 1, kind: 'spiral', name, settings });
+const printer = (name, model = 'g1') => ({ type: 'printer', name, settings: { model } });
 
 test('projects are saved, listed newest first, loaded and removed', async () => {
-  const lib = createLibrary(memoryStorage());
-  const a = lib.save(vase('A'));
+  const { projects } = createLibrary(memoryStorage());
+  const a = projects.save(spiral('A'));
   await new Promise((r) => setTimeout(r, 5));
-  const b = lib.save(vase('B'));
+  const b = projects.save(spiral('B'));
   assert.ok(a.id && b.id && a.id !== b.id);
-  assert.deepEqual(lib.list().map((e) => e.name), ['B', 'A']);
-  assert.equal(lib.load(a.id).name, 'A');
-  lib.setCurrent(a.id);
-  lib.remove(a.id);
-  assert.equal(lib.load(a.id), null);
-  assert.equal(lib.current(), null);
-  assert.deepEqual(lib.list().map((e) => e.name), ['B']);
+  assert.deepEqual(projects.list().map((e) => e.name), ['B', 'A']);
+  assert.equal(projects.load(a.id).name, 'A');
+  projects.setCurrent(a.id);
+  projects.remove(a.id);
+  assert.equal(projects.load(a.id), null);
+  assert.equal(projects.current(), null);
+  assert.deepEqual(projects.list().map((e) => e.name), ['B']);
 });
 
-test('a damaged project falls back to its previous version', () => {
-  const store = memoryStorage();
-  const lib = createLibrary(store);
-  const p = lib.save(vase('First'));
-  lib.save({ ...p, name: 'Second' });
-  store.setItem(`easygcode2.p.${p.id}`, '{ not json');
-  assert.equal(lib.load(p.id).name, 'First');
-});
-
-test('a duplicate is a new project with its own id', () => {
+test('printers are their own collection', () => {
   const lib = createLibrary(memoryStorage());
-  const p = lib.save(vase('Tall', { height: 120 }));
-  const copy = lib.duplicate(p.id);
+  const g1 = lib.printers.save(printer('Ginger G1'));
+  lib.projects.save(spiral('A'));
+  assert.equal(lib.printers.list().length, 1);
+  assert.equal(lib.printers.list()[0].kind, 'g1');
+  assert.equal(lib.projects.list().length, 1);
+  lib.printers.setCurrent(g1.id);
+  assert.equal(lib.printers.current(), g1.id);
+  assert.equal(lib.projects.current(), null);
+  // A project isn't a printer and the other way round.
+  assert.equal(lib.printers.load(lib.projects.list()[0].id), null);
+});
+
+test('a damaged item falls back to its previous version', () => {
+  const store = memoryStorage();
+  const { projects } = createLibrary(store);
+  const p = projects.save(spiral('First'));
+  projects.save({ ...p, name: 'Second' });
+  store.setItem(`ezgc.projects.${p.id}`, '{ not json');
+  assert.equal(projects.load(p.id).name, 'First');
+});
+
+test('a duplicate is a new item with its own id', () => {
+  const { projects, printers } = createLibrary(memoryStorage());
+  const p = projects.save(spiral('Tall', { height: 120 }));
+  const copy = projects.duplicate(p.id);
   assert.notEqual(copy.id, p.id);
   assert.equal(copy.name, 'Tall (copy)');
   assert.equal(copy.settings.height, 120);
-  assert.equal(lib.list().length, 2);
+  const pr = printers.duplicate(printers.save(printer('P1P', 'p1p')).id);
+  assert.equal(pr.settings.model, 'p1p');
+  assert.equal(printers.list().length, 2);
 });
 
 test('a full store says so instead of throwing', () => {
   const store = memoryStorage();
   const lib = createLibrary(store);
   store.full = true;
-  const p = lib.save(vase('Nowhere'));
+  const p = lib.projects.save(spiral('Nowhere'));
   assert.equal(lib.ok, false);
   assert.ok(p.id);
 });
 
 test('files leave the bookkeeping behind, and come back in', () => {
   const lib = createLibrary(memoryStorage());
-  const p = lib.save(vase('Shared', { height: 80 }));
+  const p = lib.projects.save(spiral('Shared', { height: 80 }));
   const file = JSON.parse(toFile(p));
+  assert.equal(file.app, 'ezgc');
   assert.equal(file.id, undefined);
   assert.equal(file.modified, undefined);
   assert.equal(file.settings.height, 80);
-  const back = parseFile(toFile(p));
-  assert.equal(back.projects[0].name, 'Shared');
-  const all = parseFile(bundle([p, lib.save(vase('Other'))]));
+  assert.equal(parseFile(toFile(p)).projects[0].name, 'Shared');
+  const pr = lib.printers.save(printer('Mine', 'p1p'));
+  const back = parseFile(toFile(pr));
+  assert.deepEqual(back.projects, []);
+  assert.equal(back.printers[0].settings.model, 'p1p');
+  const all = parseFile(bundle([p, lib.projects.save(spiral('Other'))], [pr]));
   assert.deepEqual(all.projects.map((x) => x.name), ['Shared', 'Other']);
+  assert.deepEqual(all.printers.map((x) => x.name), ['Mine']);
 });
 
 test('wrong files are messages', () => {
   assert.match(parseFile('nope').error, /isn't JSON/);
-  assert.match(parseFile('[]').error, /no kind/);
-  assert.match(parseFile('{"app":"easygcode","version":1,"settings":{}}').error, /EasyGCode 1/);
-  assert.match(parseFile('{"projects":[]}').error, /no projects/);
+  assert.match(parseFile('[]').error, /isn't an ezgc file/);
+  assert.match(parseFile('{"app":"easygcode","version":1,"settings":{}}').error, /another app \(easygcode\)/);
+  assert.match(parseFile('{"projects":[]}').error, /empty/);
+  assert.match(parseFile('{"name":"x"}').error, /isn't an ezgc project or printer/);
 });

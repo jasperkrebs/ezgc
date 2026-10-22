@@ -1,12 +1,16 @@
-//! EasyGCode's engine: a project (kind + settings JSON) → toolpaths → G-code.
+//! ezgc's engine: a project (kind + settings) and a printer profile → toolpaths → G-code.
 //!
-//! This is the whole API the app uses (through `easygcode-wasm`), and the one a CLI or an agent
-//! would use: every call takes and returns plain data, nothing here knows about the browser.
+//! This is the whole API the app uses (through `ezgc-wasm`), and the one a CLI or an agent
+//! would use: every call takes and returns plain data (JSON text), nothing here knows about the
+//! browser.
 //!
-//! - [`kinds`], [`schema`], [`printer_schema`]: what projects can be, and their settings windows.
-//! - [`new_project`]: a fresh project of a kind, every setting at its default.
-//! - [`run`]: checks a project's settings and builds its toolpaths, for the preview and the
-//!   estimate. Never fails: problems come back as messages, next to the settings they're about.
+//! - [`kinds`], [`schema`], [`printer_schema`]: what projects can be, the printers ezgc knows, and
+//!   their settings windows.
+//! - [`new_project`], [`new_printer`]: a fresh project of a kind, a fresh printer profile of a
+//!   machine, every setting at its default.
+//! - [`run`]: checks a project's and a printer's settings and builds the toolpaths, for the
+//!   preview and the estimate. Never fails: problems come back as messages, next to the settings
+//!   they're about.
 //! - [`gcode`]: the G-code of one printed part, or why it can't be written.
 //!
 //! Inside: [`kinds`] compose [`toolbox`] steps into [`toolpath`]s; [`gcode`] writes any toolpath
@@ -25,7 +29,7 @@ pub mod toolbox;
 pub mod toolpath;
 
 #[cfg(test)]
-mod golden_tests;
+mod snapshot_tests;
 
 use kinds::{Hint, Info, Kind};
 use printer::{Machine, Mode, Printer};
@@ -57,18 +61,16 @@ pub fn schema(kind: &str) -> Result<KindSchema, String> {
     })
 }
 
-/// The printer's settings window, defaults and machines.
+/// The printer's settings window, and the machines a profile can be based on.
 #[derive(Debug, Clone, Serialize)]
 pub struct PrinterSchema {
     pub groups: Vec<Group>,
-    pub defaults: Value,
     pub machines: &'static [Machine],
 }
 
 pub fn printer_schema() -> PrinterSchema {
     PrinterSchema {
         groups: printer::schema(),
-        defaults: kinds::to_value(&Printer::default()),
         machines: &printer::MACHINES,
     }
 }
@@ -85,15 +87,21 @@ pub fn new_project(kind: &str) -> Result<Project, String> {
         name: format!("New {}", info.name.to_lowercase()),
         notes: String::new(),
         settings: k.defaults(),
-        printer: kinds::to_value(&Printer::default()),
     })
+}
+
+/// A new printer profile based on a machine (`"g1"`, `"p1p"`), every setting at its default.
+pub fn new_printer(model: &str) -> Result<Printer, String> {
+    Printer::new(model).ok_or_else(|| unknown_model(model))
+}
+
+fn unknown_model(model: &str) -> String {
+    format!("This ezgc doesn't know the printer \"{model}\" (reload the app to update it).")
 }
 
 fn find(kind: &str) -> Result<&'static dyn Kind, String> {
     kinds::find(kind).ok_or_else(|| {
-        format!(
-            "This EasyGCode doesn't know projects of kind \"{kind}\" (reload the app to update it)."
-        )
+        format!("This ezgc doesn't know projects of kind \"{kind}\" (reload the app to update it).")
     })
 }
 
@@ -105,7 +113,7 @@ pub struct Run {
     pub kind: Option<Info>,
     /// The project's settings, complete (defaults filled in) and as the kind's current version.
     pub settings: Value,
-    /// The printer's settings, complete.
+    /// The printer profile's settings, complete.
     pub printer: Value,
     /// Settings that need fixing (nothing is built until they are).
     pub problems: Vec<Problem>,
@@ -123,7 +131,7 @@ pub struct Run {
 pub struct PartRun {
     pub name: String,
     pub stats: Stats,
-    /// Grams and cost, when the printer settings give a density and a price.
+    /// Grams and cost, when the printer profile gives a density and a price.
     pub mass_g: Option<f64>,
     pub cost: Option<f64>,
     /// Why its G-code can't be written (off the bed, …), if so.
@@ -148,8 +156,8 @@ struct Prepared {
     printer_problems: Vec<Problem>,
 }
 
-fn prepare(text: &str) -> Result<Prepared, String> {
-    let project = project::parse(text)?;
+fn prepare(project: &str, printer: &str) -> Result<Prepared, String> {
+    let project = project::parse(project)?;
     let kind = find(&project.kind)?;
     let mut given = project.settings.clone();
     let version = kind.info().version;
@@ -157,9 +165,10 @@ fn prepare(text: &str) -> Result<Prepared, String> {
         kind.migrate(&mut given, project.kind_version);
     }
     let (settings, problems) = schema::normalize(&kind.schema(), &kind.defaults(), &given);
-    let defaults = kinds::to_value(&Printer::default());
-    let (printer, printer_problems) =
-        schema::normalize(&printer::schema(), &defaults, &project.printer);
+    let given = project::parse_json(printer, "printer")?;
+    let model = given.get("model").and_then(Value::as_str).unwrap_or("g1");
+    let defaults = kinds::to_value(&new_printer(model)?);
+    let (printer, printer_problems) = schema::normalize(&printer::schema(), &defaults, &given);
     Ok(Prepared {
         project,
         kind,
@@ -170,9 +179,10 @@ fn prepare(text: &str) -> Result<Prepared, String> {
     })
 }
 
-/// Checks a project (the text of its file) and builds its toolpaths.
-pub fn run(text: &str) -> Run {
-    let p = match prepare(text) {
+/// Checks a project (the text of its file) and a printer profile's settings (JSON), and builds
+/// the toolpaths.
+pub fn run(project: &str, printer: &str) -> Run {
+    let p = match prepare(project, printer) {
         Ok(p) => p,
         Err(e) => {
             return Run {
@@ -255,7 +265,8 @@ fn printer_warnings(printer: &Printer, stats: &Stats, part: &str) -> Vec<String>
     };
     let mut out = Vec::new();
     if let Some([lo, hi]) = stats.flow {
-        if hi > m.max_flow {
+        // A flow set to exactly the limit comes back a hair over it (flow → feed → flow).
+        if hi > m.max_flow * (1.0 + 1e-9) {
             out.push(format!(
                 "The flow reaches {} mm³/s{of}: more than the {} melts reliably (about {} mm³/s).",
                 num::fixed(hi, 1),
@@ -277,9 +288,10 @@ fn printer_warnings(printer: &Printer, stats: &Stats, part: &str) -> Vec<String>
     out
 }
 
-/// The G-code of part `part` of a project (the text of its file).
-pub fn gcode(text: &str, part: usize) -> Result<String, String> {
-    let p = prepare(text)?;
+/// The G-code of part `part` of a project (the text of its file) for a printer profile's settings
+/// (JSON).
+pub fn gcode(project: &str, printer: &str, part: usize) -> Result<String, String> {
+    let p = prepare(project, printer)?;
     if let Some(first) = p.problems.first().or(p.printer_problems.first()) {
         return Err(format!("Fix the settings first: {}", first.message));
     }
@@ -305,28 +317,53 @@ pub fn gcode(text: &str, part: usize) -> Result<String, String> {
 mod tests {
     use super::*;
 
-    fn text(p: &Project) -> String {
-        serde_json::to_string(p).unwrap()
+    const G1: &str = r#"{ "model": "g1" }"#;
+    const P1P: &str = r#"{ "model": "p1p" }"#;
+
+    fn text<T: Serialize>(v: &T) -> String {
+        serde_json::to_string(v).unwrap()
     }
 
     #[test]
     fn a_new_project_runs_and_writes_gcode() {
-        let p = new_project("vase").unwrap();
-        let r = run(&text(&p));
-        assert!(r.error.is_none() && r.problems.is_empty(), "{r:?}");
-        assert_eq!(r.parts.len(), 1);
-        assert_eq!(r.parts[0].positions.len(), 3 * r.parts[0].feeds.len());
-        assert!(r.parts[0].blocked.is_none());
-        let g = gcode(&text(&p), 0).unwrap();
-        assert!(g.starts_with("; EasyGCode 2 — Vase: New vase\n"));
-        assert!(g.contains("TURN_OFF_HEATERS"));
-        assert!(gcode(&text(&p), 1).is_err());
+        let p = text(&new_project("spiral").unwrap());
+        for printer in [
+            text(&new_printer("g1").unwrap()),
+            text(&new_printer("p1p").unwrap()),
+        ] {
+            let r = run(&p, &printer);
+            assert!(r.error.is_none() && r.problems.is_empty(), "{r:?}");
+            assert_eq!(r.parts.len(), 1);
+            assert_eq!(r.parts[0].positions.len(), 3 * r.parts[0].feeds.len());
+            assert!(r.parts[0].blocked.is_none());
+            let g = gcode(&p, &printer, 0).unwrap();
+            assert!(g.starts_with("; ezgc — Spiral: New spiral\n"));
+            assert!(gcode(&p, &printer, 1).is_err());
+        }
+    }
+
+    #[test]
+    fn one_project_prints_on_any_printer() {
+        let p = text(&new_project("spiral").unwrap());
+        assert!(
+            gcode(&p, G1, 0)
+                .unwrap()
+                .contains("_GINGER_EXTRUDER_SET_DOWN S=210")
+        );
+        assert!(gcode(&p, P1P, 0).unwrap().contains("M104 S205"));
+        // A partial profile takes its machine's defaults: the P1P's bed is 256 mm.
+        let r = run(&p, P1P);
+        assert_eq!(
+            schema::get(&r.printer, "bed.width"),
+            Some(&serde_json::json!(256.0))
+        );
     }
 
     #[test]
     fn problems_come_back_by_setting_and_nothing_is_built() {
         let r = run(
-            r#"{ "kind": "vase", "settings": { "layerHeight": 0 }, "printer": { "pellet": { "up": 400 } } }"#,
+            r#"{ "kind": "spiral", "settings": { "layerHeight": 0 } }"#,
+            r#"{ "pellet": { "up": 400 } }"#,
         );
         assert_eq!(r.problems[0].key, "layerHeight");
         assert_eq!(r.printer_problems[0].key, "pellet.up");
@@ -336,7 +373,12 @@ mod tests {
             schema::get(&r.settings, "shape.circle.radius"),
             Some(&serde_json::json!(30.0))
         );
-        let err = gcode(r#"{ "kind": "vase", "settings": { "layerHeight": 0 } }"#, 0).unwrap_err();
+        let err = gcode(
+            r#"{ "kind": "spiral", "settings": { "layerHeight": 0 } }"#,
+            G1,
+            0,
+        )
+        .unwrap_err();
         assert!(
             err.starts_with("Fix the settings first: Layer height"),
             "{err}"
@@ -344,21 +386,31 @@ mod tests {
     }
 
     #[test]
-    fn bad_files_and_kinds_are_messages() {
-        assert!(run("{").error.unwrap().contains("isn't a project"));
+    fn bad_files_kinds_and_printers_are_messages() {
+        assert!(run("{", G1).error.unwrap().contains("isn't a project"));
         assert!(
-            run(r#"{ "kind": "spaceship" }"#)
+            run(r#"{ "kind": "spaceship" }"#, G1)
                 .error
                 .unwrap()
                 .contains("spaceship")
         );
+        assert!(
+            run(r#"{ "kind": "spiral" }"#, "[]")
+                .error
+                .unwrap()
+                .contains("isn't a printer")
+        );
+        let r = run(r#"{ "kind": "spiral" }"#, r#"{ "model": "x9" }"#);
+        assert!(r.error.unwrap().contains("printer \"x9\""));
         assert!(schema("spaceship").is_err());
         assert!(new_project("spaceship").is_err());
+        assert!(new_printer("x9").is_err());
     }
 
     #[test]
     fn a_part_off_the_bed_is_blocked_with_a_reason() {
-        let r = run(r#"{ "kind": "vase", "printer": { "model": "p1p", "centerX": 10 } }"#);
+        let off = r#"{ "model": "p1p", "centerX": 10 }"#;
+        let r = run(r#"{ "kind": "spiral" }"#, off);
         assert!(
             r.parts[0]
                 .blocked
@@ -366,11 +418,7 @@ mod tests {
                 .unwrap()
                 .contains("leaves the bed")
         );
-        let err = gcode(
-            r#"{ "kind": "vase", "printer": { "model": "p1p", "centerX": 10 } }"#,
-            0,
-        )
-        .unwrap_err();
+        let err = gcode(r#"{ "kind": "spiral" }"#, off, 0).unwrap_err();
         assert!(
             err.starts_with("No G-code: the toolpath leaves the bed"),
             "{err}"
@@ -379,30 +427,33 @@ mod tests {
 
     #[test]
     fn printer_warnings() {
-        // Feed 1800 at a 2 × 0.6 bead is 32.5 mm³/s: too much for the P1P.
-        let r = run(
-            r#"{ "kind": "vase", "settings": { "speed": { "mode": "feed" } }, "printer": { "model": "p1p" } }"#,
-        );
+        // 32 mm³/s is too much for the P1P.
+        let fast = r#"{ "kind": "spiral", "settings": { "flow": 32 } }"#;
+        let r = run(fast, P1P);
         assert!(
             r.warnings.iter().any(|w| w.contains("P1P")),
             "{:?}",
             r.warnings
         );
+        // Exactly the P1P's 20 mm³/s is fine.
+        let r = run(r#"{ "kind": "spiral", "settings": { "flow": 20 } }"#, P1P);
+        assert!(r.warnings.is_empty(), "{:?}", r.warnings);
         // 20 mm³/s on the G1: low flow, unless the upper zone runs cooler.
-        let r = run(r#"{ "kind": "vase" }"#);
+        let r = run(r#"{ "kind": "spiral" }"#, G1);
         assert!(
             r.warnings.iter().any(|w| w.contains("barrel inlet")),
             "{:?}",
             r.warnings
         );
-        let r = run(r#"{ "kind": "vase", "printer": { "pellet": { "up": 195 } } }"#);
+        let r = run(r#"{ "kind": "spiral" }"#, r#"{ "pellet": { "up": 195 } }"#);
         assert!(r.warnings.is_empty(), "{:?}", r.warnings);
     }
 
     #[test]
     fn the_material_estimate() {
         let r = run(
-            r#"{ "kind": "vase", "printer": { "material": { "density": 1.24, "price": 20 } } }"#,
+            r#"{ "kind": "spiral" }"#,
+            r#"{ "material": { "density": 1.24, "price": 20 } }"#,
         );
         let part = &r.parts[0];
         let g = part.mass_g.unwrap();

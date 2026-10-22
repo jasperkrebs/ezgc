@@ -1,15 +1,16 @@
-//! Vase mode: one continuous spiral up a wall (EasyGCode's coat hanger, without its extras).
+//! The spiral: one continuous path up a wall, no seam, no travel. Every ezgc project grows from
+//! this (see `docs/architecture.md`): other steps change its bottom, its body, its layers and its
+//! top, but the nozzle keeps going round.
 //!
-//! The outline is walked by arc length and Z rises one layer per revolution, with no seam and no
-//! travel. The first revolution ramps up: it starts on the bed with no extrusion and climbs to a
-//! full bead over one turn, each move extruding the average of the ramp at its two ends, through
-//! a denser set of points (no gap over one line width) so the ramp climbs smoothly. The height
-//! need not be a whole number of layers: the last revolution stops part way. A flat top then adds
-//! one more revolution at the top height whose extrusion tapers to zero, so the rim finishes level;
-//! an open top stops at full flow.
+//! The outline is walked by arc length and Z rises one layer per revolution. The first
+//! revolution ramps up: it starts on the bed with no extrusion and climbs to a full bead over one
+//! turn, each move extruding the average of the ramp at its two ends, through a denser set of
+//! points (no gap over one line width) so the ramp climbs smoothly. The height need not be a
+//! whole number of layers: the last revolution stops part way. A flat top then adds one more
+//! revolution at the top height whose extrusion tapers to zero, so the rim finishes level; an open
+//! top stops at full flow.
 //!
-//! Ported from `gcode.js` (`generate`, its vase spiral with pattern, hanger, brim and bottom fillet
-//! off), and golden-tested against it.
+//! The same moves as EasyGCode's coat hanger with its extras off (`gcode.js`, `generate`).
 
 use crate::geom::P2;
 use crate::num::round_to;
@@ -27,8 +28,8 @@ pub enum Top {
     Open,
 }
 
-/// One vase-mode wall.
-pub struct Spiral<'a> {
+/// One spiral wall.
+pub struct Wall<'a> {
     /// The outline, starting at the seam (see `shapes::seam`).
     pub base: &'a [P2],
     pub layer: f64,
@@ -44,7 +45,7 @@ pub struct Spiral<'a> {
 
 /// Adds the spiral to `path`. Fails with a message when the outline has no size or the spiral
 /// would be too long to compute.
-pub fn spiral(path: &mut Toolpath, s: &Spiral) -> Result<(), String> {
+pub fn wall(path: &mut Toolpath, s: &Wall) -> Result<(), String> {
     let sampler = Sampler::new(s.base);
     let perim = sampler.perimeter;
     if !(perim > 1e-6 && perim.is_finite()) {
@@ -86,7 +87,7 @@ pub fn spiral(path: &mut Toolpath, s: &Spiral) -> Result<(), String> {
         ));
     }
 
-    path.comment("--- vase spiral ---");
+    path.comment("--- spiral ---");
     let (start, _) = sampler.at(0.0);
     path.travel([start[0], start[1], 0.0]);
     let mut prev_u = 0.0;
@@ -158,12 +159,12 @@ mod tests {
     use crate::bead::bead_area;
     use crate::toolbox::shapes::{SeamSide, Shape, outline, seam};
 
-    fn wall(height: f64, top: Top) -> Toolpath {
+    fn built(height: f64, top: Top) -> Toolpath {
         let base = seam(&outline(&Shape::default(), 0.05), SeamSide::Back);
         let mut path = Toolpath::new();
-        spiral(
+        wall(
             &mut path,
-            &Spiral {
+            &Wall {
                 base: &base,
                 layer: 0.6,
                 height,
@@ -179,7 +180,7 @@ mod tests {
 
     #[test]
     fn rises_one_layer_per_revolution_and_ends_level() {
-        let path = wall(3.0, Top::Flat);
+        let path = built(3.0, Top::Flat);
         let first = path.moves[0];
         assert!(first.travel && first.to[2] == 0.0);
         let top = path.moves.iter().map(|m| m.to[2]).fold(0.0, f64::max);
@@ -192,7 +193,7 @@ mod tests {
 
     #[test]
     fn a_part_revolution_and_an_open_top() {
-        let path = wall(3.3, Top::Open);
+        let path = built(3.3, Top::Open);
         assert!((path.layers - 5.5).abs() < 1e-12);
         let last = path.moves.last().unwrap();
         assert_eq!(last.flow, 1.0);
@@ -205,9 +206,9 @@ mod tests {
     fn zero_size_is_a_message() {
         let base = vec![[0.0, 0.0]; 4];
         let mut path = Toolpath::new();
-        let err = spiral(
+        let err = wall(
             &mut path,
-            &Spiral {
+            &Wall {
                 base: &base,
                 layer: 0.6,
                 height: 3.0,

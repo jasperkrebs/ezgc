@@ -7,12 +7,12 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="EasyGCode" />
+    <meta name="apple-mobile-web-app-title" content="ezgc" />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon-192.png" />
     <link rel="apple-touch-icon" href="icons/icon-192.png" />
     <link rel="stylesheet" href="styles.css" />
-    <title>EasyGCode</title>
+    <title>ezgc</title>
     <!-- Vendored, pinned three.js (web/vendor/three/README.txt). No bundler, no CDN. -->
     <script type="importmap">
       {
@@ -27,7 +27,7 @@
   <body>
     <header class="top">
       <div class="brand">
-        <h1>EasyGCode</h1>
+        <h1>ezgc</h1>
         <button class="project-button" type="button" id="projectButton" aria-haspopup="dialog" aria-controls="projects">
           <span id="projectTitle">Loading…</span>
           <span class="kind" id="projectKind"></span>
@@ -78,20 +78,41 @@
         </section>
 
         <section class="panel" role="tabpanel" id="panel-printer" aria-labelledby="tab-printer" hidden>
+          <section class="card printer-bar">
+            <div class="field">
+              <div class="field-line">
+                <label for="printerSelect">Printer</label>
+                <select id="printerSelect"></select>
+              </div>
+            </div>
+            <div class="field">
+              <div class="field-line">
+                <label for="printerName">Name</label>
+                <input type="text" id="printerName" autocomplete="off" />
+              </div>
+              <p class="hint" id="printerBase"></p>
+            </div>
+            <div class="buttons">
+              <button class="btn" type="button" id="newPrinter">New…</button>
+              <button class="btn" type="button" id="duplicatePrinter">Duplicate</button>
+              <button class="btn" type="button" id="exportPrinter">Export</button>
+              <button class="btn danger" type="button" id="deletePrinter">Delete</button>
+            </div>
+            <div class="buttons" id="newPrinterChoice" hidden></div>
+          </section>
           <div class="notices" id="printerNotices"></div>
           <div class="form" id="printerForm"></div>
           <p class="hint">
-            Each project keeps its own printer settings, so it prints the same next time. A new project starts from the
-            printer settings you used last.
+            Printers live on this device, apart from projects: every project prints on the printer chosen here, and a
+            project you send someone prints on theirs.
           </p>
         </section>
 
         <section class="panel" role="tabpanel" id="panel-gcode" aria-labelledby="tab-gcode" hidden>
           <div id="parts"></div>
           <p class="hint">
-            The G-code is written by one shared writer with EasyGCode's start and end blocks and bead model, golden-tested
-            against EasyGCode itself. It refuses a toolpath that leaves the bed or asks the printer for temperatures it
-            doesn't take.
+            One shared writer turns every project into G-code, with EasyGCode's proven start and end blocks and bead model.
+            It refuses a toolpath that leaves the bed or asks the printer for temperatures it doesn't take.
           </p>
         </section>
       </div>
@@ -111,8 +132,9 @@
         <button class="btn" type="button" id="exportAll">Export all (backup)</button>
       </div>
       <p class="hint" id="storageNote">
-        Projects are saved on this device as you go. <b>Export</b> saves one as a file (to open on another device or keep
-        safe); iPhones can clear a web app's storage after weeks unused, so export a backup now and then.
+        Projects and printers are saved on this device as you go. <b>Export</b> saves one as a file (to open on another
+        device or send to someone); iPhones can clear a web app's storage after weeks unused, so export a backup now and
+        then.
       </p>
       <p class="error" id="fileError" role="alert" hidden></p>
       <input type="file" id="fileInput" accept=".json,application/json" hidden />

@@ -31,10 +31,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      # Includes the golden tests: the vase's G-code against EasyGCode's own (fixtures/easygcode/).
+      # Includes the G-code snapshots (fixtures/snapshots/).
       - run: cargo test --workspace --locked
       # "Never break wasm": the engine must always build for the browser.
-      - run: cargo check -p easygcode-engine -p easygcode-wasm --target wasm32-unknown-unknown --locked
+      - run: cargo check -p ezgc-engine -p ezgc-wasm --target wasm32-unknown-unknown --locked
       # Licenses: permissive only, and the notices file must list every dependency.
       - run: python3 scripts/third-party-notices.py --check
 
@@ -56,7 +56,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      # The browser's engine against EasyGCode's G-code, and the app's own modules.
+      # The browser's engine against the snapshots, and the app's own modules.
       - run: node --test scripts/wasm.test.mjs scripts/library.test.mjs scripts/form.test.mjs
       - name: Smoke test in headless Chromium (phone and desktop)
         run: |

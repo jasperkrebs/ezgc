@@ -31,7 +31,7 @@ export function createEngine() {
   /** Requests the worker hasn't answered yet, by id. @type {Map<number, { msg: object, resolve: (r: any) => void, reject: (e: Error) => void }>} */
   const pending = new Map();
 
-  /** @type {{ project: string, resolve: (r: RunResult | null) => void, reject: (e: Error) => void } | null} */
+  /** @type {{ project: string, printer: string, resolve: (r: RunResult | null) => void, reject: (e: Error) => void } | null} */
   let queued = null;
   let running = false;
 
@@ -89,7 +89,7 @@ export function createEngine() {
     const job = queued;
     queued = null;
     running = true;
-    send({ type: 'run', project: job.project })
+    send({ type: 'run', project: job.project, printer: job.printer })
       .then(job.resolve, job.reject)
       .finally(() => {
         running = false;
@@ -103,15 +103,16 @@ export function createEngine() {
     ready,
 
     /**
-     * Checks a project and builds its toolpaths. Resolves with `null` when a newer run replaced
-     * this one before it started.
+     * Checks a project and a printer profile and builds the toolpaths. Resolves with `null` when a
+     * newer run replaced this one before it started.
      * @param {string} project the project file's text
+     * @param {string} printer the printer profile's settings (JSON)
      * @returns {Promise<RunResult | null>}
      */
-    run(project) {
+    run(project, printer) {
       return new Promise((resolve, reject) => {
         if (queued) queued.resolve(null);
-        queued = { project, resolve, reject };
+        queued = { project, printer, resolve, reject };
         pump();
       });
     },
@@ -120,14 +121,16 @@ export function createEngine() {
     kinds: () => send({ type: 'kinds' }),
     /** A kind's settings window and defaults. @param {string} kind */
     schema: (kind) => send({ type: 'schema', kind }),
-    /** The printer's settings window, defaults and machines. */
+    /** The printer's settings window and the machines a profile can be based on. */
     printerSchema: () => send({ type: 'printerSchema' }),
+    /** A new printer profile's settings, based on a machine. @param {string} model */
+    newPrinter: (model) => send({ type: 'newPrinter', model }),
     /** A new project of a kind, every setting at its default. @param {string} kind */
     newProject: (kind) => send({ type: 'newProject', kind }),
     /**
-     * The G-code of one part. Fails with a readable message when it can't be written.
-     * @param {string} project @param {number} part @returns {Promise<string>}
+     * The G-code of one part for a printer. Fails with a readable message when it can't be written.
+     * @param {string} project @param {string} printer @param {number} part @returns {Promise<string>}
      */
-    gcode: (project, part = 0) => send({ type: 'gcode', project, part }),
+    gcode: (project, printer, part = 0) => send({ type: 'gcode', project, printer, part }),
   };
 }

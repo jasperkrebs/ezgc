@@ -5,4 +5,4 @@
 //! [`crate::toolpath::Toolpath`] and never writes G-code.
 
 pub mod shapes;
-pub mod vase;
+pub mod spiral;

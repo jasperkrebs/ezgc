@@ -1,9 +1,9 @@
 //! WebAssembly facade for the web app (`web/js/engine.worker.js` loads it in a Web Worker).
 //!
 //! Deliberately thin: JSON text in, JSON text (and typed arrays for the preview) out. Every call
-//! maps to one function of `easygcode_engine`; nothing here makes decisions.
+//! maps to one function of `ezgc_engine`; nothing here makes decisions.
 
-use easygcode_engine as engine;
+use ezgc_engine as engine;
 use js_sys::{Array, Float32Array, Object, Reflect, Uint8Array};
 use wasm_bindgen::prelude::*;
 
@@ -27,7 +27,7 @@ pub fn schema(kind: &str) -> Result<String, JsError> {
         .and_then(|s| json(&s))
 }
 
-/// The printer's settings window, defaults and machines, as JSON.
+/// The printer's settings window and the machines a profile can be based on, as JSON.
 #[wasm_bindgen(js_name = printerSchema)]
 pub fn printer_schema() -> Result<String, JsError> {
     json(&engine::printer_schema())
@@ -41,13 +41,14 @@ pub fn new_project(kind: &str) -> Result<String, JsError> {
         .and_then(|p| json(&p))
 }
 
-/// Checks a project (the text of its file) and builds its toolpaths. Returns `{ meta, parts }`:
+/// Checks a project (the text of its file) and a printer profile's settings (JSON), and builds
+/// the toolpaths. Returns `{ meta, parts }`:
 /// `meta` is the engine's `Run` as JSON (settings, problems, warnings, hints, each part's stats),
 /// and `parts` has each part's preview as typed arrays: `{ positions, feeds, travel }`. Never
 /// throws for a bad project: its problems are in `meta`.
 #[wasm_bindgen]
-pub fn run(project: &str) -> Result<Object, JsError> {
-    let r = engine::run(project);
+pub fn run(project: &str, printer: &str) -> Result<Object, JsError> {
+    let r = engine::run(project, printer);
     let out = Object::new();
     set(
         &out,
@@ -70,10 +71,19 @@ pub fn run(project: &str) -> Result<Object, JsError> {
     Ok(out)
 }
 
-/// The G-code of one part of a project. Throws a readable message when it can't be written.
+/// A new printer profile's settings, based on a machine (`"g1"`, `"p1p"`), as JSON.
+#[wasm_bindgen(js_name = newPrinter)]
+pub fn new_printer(model: &str) -> Result<String, JsError> {
+    engine::new_printer(model)
+        .map_err(|e| JsError::new(&e))
+        .and_then(|p| json(&p))
+}
+
+/// The G-code of one part of a project for a printer profile. Throws a readable message when it
+/// can't be written.
 #[wasm_bindgen]
-pub fn gcode(project: &str, part: usize) -> Result<String, JsError> {
-    engine::gcode(project, part).map_err(|e| JsError::new(&e))
+pub fn gcode(project: &str, printer: &str, part: usize) -> Result<String, JsError> {
+    engine::gcode(project, printer, part).map_err(|e| JsError::new(&e))
 }
 
 fn json<T: serde::Serialize>(v: &T) -> Result<String, JsError> {

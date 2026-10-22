@@ -1,0 +1,5 @@
+{
+  "model": "g1",
+  "endLift": 20,
+  "pellet": { "up": 200, "mid": 220, "down": 230, "bed": 60, "pa": 0, "purge": 3000, "fan": 30 }
+}

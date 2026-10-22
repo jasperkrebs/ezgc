@@ -1,0 +1,9 @@
+{
+  "model": "p1p",
+  "multiplier": 0.95,
+  "endLift": 30,
+  "travelFeed": 9000,
+  "centerX": 128,
+  "centerY": 128,
+  "filament": { "nozzle": 210, "bed": 65, "fan": 80 }
+}

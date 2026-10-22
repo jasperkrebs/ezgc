@@ -1,6 +1,6 @@
 {
-  "name": "EasyGCode",
-  "short_name": "EasyGCode",
+  "name": "ezgc",
+  "short_name": "ezgc",
   "description": "Custom 3D-printing toolpaths and G-code, on your phone and computer.",
   "start_url": "./index.html",
   "scope": "./",

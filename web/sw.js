@@ -1,11 +1,11 @@
-/* Offline cache for the app, the same approach as EasyGCode's sw.js.
+/* Offline cache for ezgc, the same approach as EasyGCode's sw.js.
  *
  * Network-first for everything on this site, revalidating past the HTTP cache, so a plain
  * refresh always gets the latest deploy when online. The cache is only the offline fallback.
  * One fixed cache name: nothing to bump per release. Edit ASSETS only when adding or removing
  * a shipped file (scripts/smoke-test.cjs checks that every file is listed).
  */
-const CACHE = 'easygcode2';
+const CACHE = 'ezgc';
 const ASSETS = [
   './',
   './index.html',
@@ -18,8 +18,8 @@ const ASSETS = [
   './js/form.js',
   './js/library.js',
   './js/viewport.js',
-  './pkg/easygcode_wasm.js',
-  './pkg/easygcode_wasm_bg.wasm',
+  './pkg/ezgc_wasm.js',
+  './pkg/ezgc_wasm_bg.wasm',
   './vendor/three/three.module.js',
   './vendor/three/three.core.js',
   './vendor/three/addons/controls/OrbitControls.js',

@@ -1,7 +1,6 @@
-; EasyGCode — coat hanger (vase mode) generator
-; shape=ellipse tolerance=0.05mm seam=left
-; layerHeight=0.8 lineWidth=2.4 totalHeight=2.4 direction=CCW
-; printFeed=2400 travelFeed=6000 (mm/min)
+; ezgc — Spiral: Ellipse with the fan on
+; spiral: shape=ellipse tolerance=0.05mm start=left direction=CCW top=flat
+; height=2.4 layerHeight=0.8 lineWidth=2.4 flow=40 mm3/s -> feed 1346 mm/min (bead area 1.783 mm2)
 ; printer=pellet multiplier=1 (E in mm^3, volumetric)
 ; --- start G-code (pellet / Klipper) ---
 SET_PRESSURE_ADVANCE EXTRUDER=extruder SMOOTH_TIME=0.04
@@ -34,9 +33,9 @@ _GINGER_BUZZER_TONE_INITIAL
 ; --- end of start G-code ---
 G90 ; absolute positioning
 M83 ; relative extrusion
-; --- vase spiral ---
+; --- spiral ---
 G0 X85.000 Y125.000 Z0.000 F6000
-G1 X85.092 Y123.802 Z0.005 E0.00622 F2400
+G1 X85.092 Y123.802 Z0.005 E0.00622 F1346
 G1 X85.184 Y122.604 Z0.009 E0.01866
 G1 X85.460 Y121.417 Z0.014 E0.03164
 G1 X85.735 Y120.230 Z0.019 E0.04443
@@ -164,7 +163,7 @@ G1 X85.439 Y128.695 Z0.786 E2.33674
 G1 X85.184 Y127.396 Z0.791 E2.32514
 G1 X85.092 Y126.198 Z0.795 E2.12340
 G1 X85.000 Y125.000 Z0.800 E2.13584
-M106 S77 ; part cooling fan on after ramp loop
+M106 S77 ; part cooling fan on
 G1 X85.184 Y122.604 Z0.809 E4.28413
 G1 X85.735 Y120.230 Z0.819 E4.34459
 G1 X86.647 Y117.900 Z0.828 E4.46092
