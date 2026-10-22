@@ -1,0 +1,47 @@
+//! The extrusion bead model, identical to EasyGCode's (`gcode.js`, `beadArea`).
+
+use std::f64::consts::PI;
+
+/// Cross-section area (mm²) of one extruded bead, modelled as a stadium: a rectangle with a
+/// half circle on each end, `width` wide and `height` tall.
+///
+/// `(w − h)·h + π·(h/2)²`, with the width clamped to at least the height (a bead can't be
+/// narrower than it is tall). Multiply by a segment's length to get its volume in mm³.
+pub fn bead_area(width: f64, height: f64) -> f64 {
+    let w = width.max(height);
+    // Same operation order as EasyGCode, so both round identically.
+    (w - height) * height + PI * (height / 2.0) * (height / 2.0)
+}
+
+/// The feed (mm/min) that prints a bead of `area` mm² at `flow` mm³/s, computed the way
+/// EasyGCode does (`flow · 60 / area`), so both round identically.
+pub fn feed_for_flow(flow: f64, area: f64) -> f64 {
+    (flow * 60.0) / area.max(1e-6)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn matches_easygcode_formula() {
+        // 0.6 × 0.3 bead: (0.6 − 0.3)·0.3 + π·0.15² = 0.09 + 0.070686
+        assert!((bead_area(0.6, 0.3) - 0.160_685_834_7).abs() < 1e-9);
+    }
+
+    #[test]
+    fn round_bead_when_width_equals_height() {
+        assert!((bead_area(0.4, 0.4) - PI * 0.04).abs() < 1e-12);
+    }
+
+    #[test]
+    fn width_is_clamped_to_height() {
+        assert_eq!(bead_area(0.1, 0.4), bead_area(0.4, 0.4));
+    }
+
+    #[test]
+    fn flow_becomes_feed() {
+        let area = bead_area(2.0, 0.6);
+        assert!((feed_for_flow(20.0, area) * area / 60.0 - 20.0).abs() < 1e-9);
+    }
+}

@@ -1,0 +1,14 @@
+{
+  "app": "ezgc",
+  "format": 1,
+  "kind": "spiral",
+  "name": "Ellipse with the fan on",
+  "settings": {
+    "shape": { "kind": "ellipse" },
+    "height": 2.4,
+    "layerHeight": 0.8,
+    "lineWidth": 2.4,
+    "flow": 40,
+    "seam": "left"
+  }
+}

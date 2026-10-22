@@ -1,0 +1,15 @@
+{
+  "app": "ezgc",
+  "format": 1,
+  "kind": "spiral",
+  "name": "Star without start and end blocks",
+  "settings": {
+    "shape": { "kind": "star" },
+    "height": 1.5,
+    "layerHeight": 0.4,
+    "lineWidth": 1.2,
+    "flow": 15,
+    "seam": "right",
+    "tolerance": 0.1
+  }
+}

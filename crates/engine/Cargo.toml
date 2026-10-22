@@ -1,0 +1,16 @@
+[package]
+name = "ezgc-engine"
+description = "EasyGCode's engine: projects (settings JSON) → toolpaths → G-code, with EasyGCode's bead model and start/end blocks (no UI, no I/O)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+libm = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

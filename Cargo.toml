@@ -1,0 +1,39 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "LicenseRef-Proprietary"
+publish = false
+
+[workspace.dependencies]
+ezgc-engine = { path = "crates/engine" }
+libm = "0.2.16"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+wasm-bindgen = "=0.2.129"
+js-sys = "=0.3.106"
+
+# "Never crash": no panics in non-test code (tests may unwrap; see clippy.toml), no unsafe.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+
+# The browser build (scripts/build-web.sh): small download, fast enough geometry.
+[profile.wasm]
+inherits = "release"
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"

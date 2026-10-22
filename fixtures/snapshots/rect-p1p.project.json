@@ -1,0 +1,16 @@
+{
+  "app": "ezgc",
+  "format": 1,
+  "kind": "spiral",
+  "name": "Rounded rectangle on the P1P",
+  "settings": {
+    "shape": { "kind": "roundedRect" },
+    "height": 2.55,
+    "layerHeight": 0.3,
+    "lineWidth": 0.6,
+    "flow": 8,
+    "top": "open",
+    "seam": "front",
+    "direction": "cw"
+  }
+}
