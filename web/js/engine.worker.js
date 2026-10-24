@@ -19,6 +19,8 @@ function answer(msg) {
   switch (msg.type) {
     case 'kinds':
       return { result: JSON.parse(engine.kinds()), transfer: [] };
+    case 'templates':
+      return { result: JSON.parse(engine.templates()), transfer: [] };
     case 'schema':
       return { result: JSON.parse(engine.schema(msg.kind)), transfer: [] };
     case 'printerSchema':

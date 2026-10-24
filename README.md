@@ -20,8 +20,10 @@ project) and runs on [EasyCAD](https://github.com/jasperkrebs/easycad)'s Rust en
 - **Safe G-code.** One writer with EasyGCode's proven start and end blocks; it refuses toolpaths
   that leave the bed or ask the printer for temperatures it doesn't take.
 
-> **Status (22 Oct 2026):** the base: the spiral with six shapes, printer profiles, projects on the
-> device. Next: growing the spiral, starting with a flat bottom that turns into the wall
+> **Status (22 Oct 2026):** the spiral with six shapes, printer profiles, projects on the device,
+> and the first EasyGCode project grown onto the spiral: the **salt & pepper shaker** (a container
+> with a flat bottom, a body profile and closer layers on overhangs, and a lid with holes that
+> screws on; New project → "Salt & pepper shaker"). Next: the lampshade
 > ([roadmap](docs/roadmap.md)).
 
 ## Docs

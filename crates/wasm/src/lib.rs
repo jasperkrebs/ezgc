@@ -33,7 +33,13 @@ pub fn printer_schema() -> Result<String, JsError> {
     json(&engine::printer_schema())
 }
 
-/// A new project of a kind (a project file, as JSON).
+/// Ready-made projects: `[{ id, kind, name, description }]` as JSON.
+#[wasm_bindgen]
+pub fn templates() -> Result<String, JsError> {
+    json(&engine::templates())
+}
+
+/// A new project of a kind, or from a template (a project file, as JSON).
 #[wasm_bindgen(js_name = newProject)]
 pub fn new_project(kind: &str) -> Result<String, JsError> {
     engine::new_project(kind)

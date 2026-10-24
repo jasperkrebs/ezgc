@@ -11,8 +11,13 @@
 //! top stops at full flow.
 //!
 //! The same moves as EasyGCode's coat hanger with its extras off (`gcode.js`, `generate`).
+//!
+//! A [`Shaped`] wall is a surface of revolution of the outline: at each height the outline scaled
+//! (a body profile, a fillet), its turns starting at given heights (closer on overhangs) and its
+//! bead set by height (easing out of a flat bottom). Each turn blends one level's outline into the
+//! next; it may start on a flat bottom (no ramp) instead of the bed.
 
-use crate::geom::P2;
+use crate::geom::{P2, P3};
 use crate::num::round_to;
 use crate::toolbox::shapes::Sampler;
 use crate::toolpath::{Event, MAX_MOVES, Toolpath};
@@ -41,6 +46,23 @@ pub struct Wall<'a> {
     /// mm/min.
     pub feed: f64,
     pub top: Top,
+    /// A wall that isn't a straight prism; `None` is the plain spiral above.
+    pub shaped: Option<Shaped<'a>>,
+}
+
+/// A wall whose outline is scaled along the height.
+pub struct Shaped<'a> {
+    /// The heights the turns start at, bottom to top: turn k climbs from `levels[k]` to
+    /// `levels[k + 1]` (whole turns; `layer` and `height` above are then unused).
+    pub levels: &'a [f64],
+    /// The outline's scale at a height.
+    pub scale: &'a dyn Fn(f64) -> f64,
+    /// The bead (area mm², feed mm/min) of a move whose middle is at a height (`area` and `feed`
+    /// above are then unused).
+    pub bead: &'a dyn Fn(f64) -> (f64, f64),
+    /// Whether the first turn starts on the bed and ramps up from nothing (with the fan coming on
+    /// after it), or carries on at full flow from a flat bottom the path already printed.
+    pub ramp: bool,
 }
 
 /// Adds the spiral to `path`. Fails with a message when the outline has no size or the spiral
@@ -52,9 +74,45 @@ pub fn wall(path: &mut Toolpath, s: &Wall) -> Result<(), String> {
         return Err("The shape has zero size: check its dimensions.".into());
     }
     let lh = s.layer;
-    // Revolutions: may end part way through one.
-    let turns = s.height / lh;
-    let whole = (turns - 1e-9).ceil().max(0.0) as usize;
+    // Revolutions: may end part way through one (a shaped wall's are whole).
+    let (turns, whole) = match &s.shaped {
+        Some(sh) => {
+            let n = sh.levels.len().saturating_sub(1);
+            (n as f64, n)
+        }
+        None => {
+            let turns = s.height / lh;
+            (turns, (turns - 1e-9).ceil().max(0.0) as usize)
+        }
+    };
+    let ramp = s.shaped.as_ref().is_none_or(|sh| sh.ramp);
+    let level = |l: usize| {
+        s.shaped
+            .as_ref()
+            .and_then(|sh| sh.levels.get(l))
+            .copied()
+            .unwrap_or(0.0)
+    };
+    // Where a point a fraction `u` round turn `l` is, and the bead of a move ending there from `z0`.
+    let place = |l: usize, u: f64| -> P3 {
+        let (p, _) = sampler.at(u);
+        match &s.shaped {
+            Some(sh) => {
+                let z = level(l) + (level(l + 1) - level(l)) * u;
+                let k = (sh.scale)(z);
+                [p[0] * k, p[1] * k, z]
+            }
+            None => [p[0], p[1], (lh * (l as f64 + u)).min(s.height).max(0.0)],
+        }
+    };
+    let bead = |z0: f64, z1: f64| match &s.shaped {
+        Some(sh) => (sh.bead)((z0 + z1) / 2.0),
+        None => (s.area, s.feed),
+    };
+    let top_z = match &s.shaped {
+        Some(_) => level(whole),
+        None => s.height,
+    };
 
     // The outline's own points, as fractions of the way round (rounded like EasyGCode, so points
     // a hair apart count as one).
@@ -88,26 +146,30 @@ pub fn wall(path: &mut Toolpath, s: &Wall) -> Result<(), String> {
     }
 
     path.comment("--- spiral ---");
-    let (start, _) = sampler.at(0.0);
-    path.travel([start[0], start[1], 0.0]);
+    let start = place(0, 0.0);
+    if ramp {
+        path.travel(start);
+    }
     let mut prev_u = 0.0;
+    let mut prev_z = start[2];
     for l in 0..whole {
         let u_end = (turns - l as f64).min(1.0);
-        if l == 1 {
+        if l == 1 && ramp {
             path.event(Event::FanOn);
         }
-        let first = l == 0;
+        let first = l == 0 && ramp;
         let set = if first { &u_ramp } else { &u_set };
         let mut step = |path: &mut Toolpath, u: f64| {
-            let (p, _) = sampler.at(u);
-            let z = (lh * (l as f64 + u)).min(s.height).max(0.0);
-            let ramp = if first {
+            let p = place(l, u);
+            let flow = if first {
                 ((prev_u + u) / 2.0).clamp(0.0, 1.0)
             } else {
                 1.0
             };
-            path.extrude([p[0], p[1], z], s.area, ramp, s.feed);
+            let (area, feed) = bead(prev_z, p[2]);
+            path.extrude(p, area, flow, feed);
             prev_u = u;
+            prev_z = p[2];
         };
         for &u in set {
             if (l > 0 && u <= 1e-9) || u >= u_end - 1e-9 {
@@ -131,6 +193,8 @@ pub fn wall(path: &mut Toolpath, s: &Wall) -> Result<(), String> {
                 .chain(std::iter::once(f0));
             let mut pf = f0;
             let mut trav = 0.0f64;
+            let k = s.shaped.as_ref().map_or(1.0, |sh| (sh.scale)(top_z));
+            let (area, feed) = bead(top_z, top_z);
             for u in seq {
                 let mut d = u - pf;
                 if d <= 1e-9 {
@@ -138,12 +202,11 @@ pub fn wall(path: &mut Toolpath, s: &Wall) -> Result<(), String> {
                 }
                 trav = (trav + d).min(1.0);
                 let (p, _) = sampler.at(u);
-                path.extrude(
-                    [p[0], p[1], s.height],
-                    s.area,
-                    (1.0 - trav).max(0.0),
-                    s.feed,
-                );
+                let at = match &s.shaped {
+                    Some(_) => [p[0] * k, p[1] * k, top_z],
+                    None => [p[0], p[1], s.height],
+                };
+                path.extrude(at, area, (1.0 - trav).max(0.0), feed);
                 pf = u;
             }
         }
@@ -172,6 +235,7 @@ mod tests {
                 width: 2.0,
                 feed: 1800.0,
                 top,
+                shaped: None,
             },
         )
         .unwrap();
@@ -216,6 +280,7 @@ mod tests {
                 width: 2.0,
                 feed: 1800.0,
                 top: Top::Flat,
+                shaped: None,
             },
         )
         .unwrap_err();

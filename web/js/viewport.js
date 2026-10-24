@@ -147,7 +147,9 @@ export function createViewport(canvas) {
     },
 
     /**
-     * Shows the toolpaths of a run: each part's moves, from one end point to the next.
+     * Shows the toolpaths of a run: each part's moves, from one end point to the next. Each part
+     * prints on its own, on the bed's centre; here the second and later ones stand to the right of
+     * the one before, so a container and its lid are seen side by side.
      * @param {{ positions: Float32Array, feeds: Float32Array, travel: Uint8Array }[]} parts
      * @param {{ refit?: boolean }} [view]
      * @returns {{ feed: number[] | null }} the feed range the colours span (mm/min)
@@ -167,12 +169,26 @@ export function createViewport(canvas) {
       const c = new THREE.Color();
       const min = [Infinity, Infinity, Infinity];
       const max = [-Infinity, -Infinity, -Infinity];
+      // Side by side: each part shifted along X to start 10 mm right of the last one's end.
+      const shifts = [];
+      let right = -Infinity;
       for (const p of parts) {
+        let [a, b] = [Infinity, -Infinity];
+        for (let i = 0; i < p.feeds.length; i++) {
+          a = Math.min(a, p.positions[3 * i]);
+          b = Math.max(b, p.positions[3 * i]);
+        }
+        const shift = Number.isFinite(right) && Number.isFinite(a) ? right + 10 - a : 0;
+        shifts.push(shift);
+        if (Number.isFinite(b)) right = b + shift;
+      }
+      parts.forEach((p, k) => {
         const n = p.feeds.length;
         const moves = [];
         const colors = [];
         const travels = [];
-        const at = (i) => [p.positions[3 * i], p.positions[3 * i + 1], p.positions[3 * i + 2]];
+        const dx = shifts[k];
+        const at = (i) => [p.positions[3 * i] + dx, p.positions[3 * i + 1], p.positions[3 * i + 2]];
         for (let i = 0; i < n; i++) {
           const q = at(i);
           for (let k = 0; k < 3; k++) {
@@ -203,7 +219,7 @@ export function createViewport(canvas) {
           line.visible = showTravel;
           paths.add(line);
         }
-      }
+      });
       lastBounds = Number.isFinite(min[0]) ? { min, max } : null;
       if (!fitted || view.refit) {
         fit(lastBounds);

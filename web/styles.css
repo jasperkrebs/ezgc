@@ -390,7 +390,8 @@ button {
   gap: 12px;
 }
 
-.field label {
+.field label,
+.field .label {
   color: var(--text);
   font-size: 0.95rem;
 }
@@ -433,6 +434,46 @@ input.num {
   color: var(--muted);
   font-size: 0.85rem;
   min-width: 3.2em;
+}
+
+/* A list of points (a body profile): a row of two numbers per point. */
+.point-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.point-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.point-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.field .point-axis {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.point-axis input.num {
+  width: 72px;
+}
+
+.point-axis .unit {
+  min-width: 1em;
 }
 
 .field.bad input,

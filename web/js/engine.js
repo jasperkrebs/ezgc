@@ -119,13 +119,15 @@ export function createEngine() {
 
     /** Every kind of project. @returns {Promise<{ id: string, name: string, description: string, version: number }[]>} */
     kinds: () => send({ type: 'kinds' }),
+    /** Ready-made projects. @returns {Promise<{ id: string, kind: string, name: string, description: string }[]>} */
+    templates: () => send({ type: 'templates' }),
     /** A kind's settings window and defaults. @param {string} kind */
     schema: (kind) => send({ type: 'schema', kind }),
     /** The printer's settings window and the machines a profile can be based on. */
     printerSchema: () => send({ type: 'printerSchema' }),
     /** A new printer profile's settings, based on a machine. @param {string} model */
     newPrinter: (model) => send({ type: 'newPrinter', model }),
-    /** A new project of a kind, every setting at its default. @param {string} kind */
+    /** A new project of a kind (every setting at its default) or from a template, by id. @param {string} kind */
     newProject: (kind) => send({ type: 'newProject', kind }),
     /**
      * The G-code of one part for a printer. Fails with a readable message when it can't be written.
